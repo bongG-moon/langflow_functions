@@ -1,0 +1,37 @@
+# Python cache and local runtime files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Packaged handoff artifacts
+*.zip
+
+# Runtime/generated report files
+html_report_flow/report_api/storage/
+
+# Reproducible sample render outputs
+html_report_flow/test_outputs/

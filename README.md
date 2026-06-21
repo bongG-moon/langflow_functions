@@ -1,0 +1,10 @@
+# Langflow Functions
+
+Langflow에서 체험하거나 재사용할 수 있는 기능 flow 모음입니다.
+
+현재 포함된 flow:
+
+- `html_report_flow`: CSV/JSON 데이터와 사용자 질문을 기반으로 HTML 분석 리포트를 생성하는 Langflow 컴포넌트 세트
+
+저장소에는 소스 코드, 문서, 샘플 입력 데이터, 샘플 카탈로그, 스키마, 로컬 Report API 서버 코드만 포함합니다.
+로컬 실행 중 생성되는 HTML 공유 파일, 테스트 출력물, 압축 파일, 캐시, 환경 파일은 `.gitignore`로 제외했습니다.
