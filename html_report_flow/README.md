@@ -13,7 +13,8 @@
 -> 01 데이터 구조 분석
 -> 02 리포트 요소 카탈로그
 -> 03 기본 리포트 계획
--> 03a LLM 계획 프롬프트
+-> 03a 프롬프트 변수 준비
+-> Prompt Template
 -> LLM
 -> 03b LLM 계획 검증
 -> 04 HTML 렌더링
@@ -28,7 +29,8 @@
 -> 01 데이터 구조 분석
 -> 02 리포트 요소 카탈로그
 -> 03 기본 리포트 계획
--> 03a LLM 계획 프롬프트
+-> 03a 프롬프트 변수 준비
+-> Prompt Template
 -> LLM
 -> 03b LLM 계획 검증
 -> 04 HTML 렌더링
@@ -59,7 +61,8 @@ langflow_components/html_report_flow/
 
 - `00`은 선택된 rows를 `api_response.data`에만 담고, `available_datasets`에는 데이터셋 목록/컬럼/row 수만 둡니다.
 - `03`은 LLM 프롬프트/검증에 필요한 데이터 분석/요소 카탈로그 요약만 `llm_context`에 담습니다.
-- `03a`와 `03b`는 `03.기본 계획`만 연결하면 되고, profile/catalog를 다시 연결하지 않습니다.
+- `03a`는 Langflow 기본 Prompt Template에 연결할 변수 JSON을 만듭니다. Prompt Template 본문은 `docs/PROMPT_TEMPLATE.md`에서 복사해 넣습니다.
+- `03b`는 `03.기본 계획`과 LLM 응답만 연결하면 되고, profile/catalog를 다시 연결하지 않습니다.
 - `04` 출력은 렌더링에 필요한 요약, plan, HTML 결과 중심으로 정리됩니다.
 - `05-2` 링크 출력은 게시 성공 후 HTML 원문과 원본 rows를 빼고 짧은 안내 문구와 다운로드 링크 중심으로 반환합니다.
 
@@ -92,7 +95,7 @@ report_api/README.md
 | `heatmap_matrix` | 교차 히트맵 | 두 dimension 교차값 비교 |
 | `ranking_table`, `detail_data_table` | 순위/상세 표 | 조회 결과 검증 |
 
-LLM prompt에는 차트 선택 기준과 레이아웃 균형 규칙이 포함되어 있습니다. 같은 row의 카드들은 `half+half`처럼 맞추고, 긴 표와 legend가 많은 차트는 full width로 배치하도록 유도합니다.
+Prompt Template에 들어가는 LLM prompt에는 차트 선택 기준과 레이아웃 균형 규칙이 포함되어 있습니다. 같은 row의 카드들은 `half+half`처럼 맞추고, 긴 표와 legend가 많은 차트는 full width로 배치하도록 유도합니다.
 
 ## Sample Data
 
@@ -123,4 +126,10 @@ Langflow에서 어떤 output을 어떤 input에 연결해야 하는지는 아래
 
 ```text
 CONNECTION_GUIDE.md
+```
+
+Prompt Template 노드의 template 칸에 넣을 원문은 아래 문서에 따로 분리해두었습니다.
+
+```text
+docs/PROMPT_TEMPLATE.md
 ```

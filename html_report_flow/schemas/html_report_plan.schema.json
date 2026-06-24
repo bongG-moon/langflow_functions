@@ -7,6 +7,7 @@
     "plan_version": {"type": "string"},
     "title": {"type": "string"},
     "subtitle": {"type": "string"},
+    "filename_hint": {"type": "string"},
     "layout": {"type": "string", "enum": ["report", "dashboard", "query_review", "diagnosis"]},
     "blocks": {
       "type": "array",

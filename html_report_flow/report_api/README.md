@@ -104,6 +104,9 @@ C:\Users\qkekt\Desktop\기능flow\html_report_flow\report_api\storage\reports
 | `.html` | 브라우저에서 보는 실제 HTML 리포트 |
 | `.json` | 제목, 질문, 만료 시간, 다운로드 파일명, row 수 같은 메타데이터 |
 
+저장소의 실제 파일명은 충돌 방지를 위해 `report_id.html` 형식으로 유지됩니다.
+사용자가 다운로드할 때 보이는 파일명은 Langflow가 보낸 `filename_hint` 값을 사용하며, 한글 파일명도 지원합니다.
+
 ## 6. Langflow 연결
 
 Langflow flow에서 `05-2 공유 링크 출력` 노드를 사용합니다.

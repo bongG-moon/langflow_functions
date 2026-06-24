@@ -113,6 +113,7 @@ def _normalize_plan(
     plan["plan_source"] = "llm"
     plan["title"] = _short_text(llm_plan.get("title"), base_plan.get("title") or "HTML 데이터 리포트", 90)
     plan["subtitle"] = _short_text(llm_plan.get("subtitle"), base_plan.get("subtitle") or "", 160)
+    plan["filename_hint"] = _short_text(llm_plan.get("filename_hint"), base_plan.get("filename_hint") or plan["title"], 80)
     plan["audience"] = _choice(llm_plan.get("audience"), AUDIENCES, base_plan.get("audience") or "general")
     plan["report_goal"] = _choice(llm_plan.get("report_goal"), REPORT_GOALS, base_plan.get("report_goal") or "explore")
     plan["layout"] = _choice(llm_plan.get("layout"), LAYOUTS, base_plan.get("layout") or "dashboard")

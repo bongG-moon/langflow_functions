@@ -31,16 +31,27 @@ def render_html_report(payload_value: Any) -> dict[str, Any]:
     rows = _rows(data.get("rows"))
     columns = _strings(data.get("columns")) or _columns_from_rows(rows)
     title = str(plan.get("title") or "HTML 데이터 리포트")
+    filename_hint = _filename_hint(plan.get("filename_hint") or title)
     blocks = _list(plan.get("blocks"))
     rendered_blocks = []
+    nav_items = []
     for block in blocks:
         # block_id에 따라 KPI/차트/표/문장 블록 중 하나를 렌더링합니다.
         if not isinstance(block, dict):
             continue
         rendered = _render_block(block, payload, rows, columns)
         if rendered:
-            rendered_blocks.append(_wrap_block(block, rendered))
-    document = _document(title, str(plan.get("subtitle") or ""), rendered_blocks, plan)
+            anchor_id = f"report-section-{len(rendered_blocks) + 1}"
+            rendered_blocks.append(_wrap_block(block, rendered, anchor_id))
+            nav_items.append(
+                {
+                    "anchor_id": anchor_id,
+                    "title": str(block.get("title") or block.get("block_id") or "Section"),
+                    "section": str(block.get("section") or _block_nav_label(str(block.get("block_id") or ""))),
+                    "block_id": str(block.get("block_id") or ""),
+                }
+            )
+    document = _document(title, str(plan.get("subtitle") or ""), rendered_blocks, plan, nav_items)
     result = _compact_renderer_payload(payload)
     result["html_report"] = {
         **_dict(payload.get("html_report")),
@@ -48,7 +59,7 @@ def render_html_report(payload_value: Any) -> dict[str, Any]:
         "html": document,
         "row_count": int(data.get("row_count") or len(rows)),
         "blocks": [block.get("block_id") for block in blocks if isinstance(block, dict)],
-        "filename_hint": _filename_hint(title),
+        "filename_hint": filename_hint,
         "rendered_at": datetime.now().isoformat(timespec="seconds"),
     }
     return result
@@ -106,7 +117,7 @@ def _render_block(block: dict[str, Any], payload: dict[str, Any], rows: list[dic
         markup = _scatter_plot(block, rows)
     elif block_id in {"heatmap_matrix", "pivot_matrix_table"}:
         markup = _heatmap_matrix(block, rows)
-    elif block_id in {"ranking_table", "detail_data_table", "period_comparison_table", "outlier_exception_table"}:
+    elif block_id in {"ranking_table", "rank_change_table", "detail_data_table", "period_comparison_table", "outlier_exception_table"}:
         markup = _table(block, rows, columns)
     elif block_id == "insight_bullets":
         markup = _insight_bullets(block, payload, rows)
@@ -212,7 +223,7 @@ def _kpi_cards(block: dict[str, Any], rows: list[dict[str, Any]]) -> str:
     if not metrics:
         return ""
     cards = []
-    for metric in metrics[:4]:
+    for metric in metrics[:6]:
         column = str(metric.get("column") or "")
         aggregation = str(metric.get("aggregation") or "sum")
         label = str(metric.get("label") or column)
@@ -486,31 +497,65 @@ def _histogram_chart(block: dict[str, Any], rows: list[dict[str, Any]]) -> str:
     values = sorted(value for value in (_number(row.get(column)) for row in rows) if value is not None)
     if len(values) < 2:
         return ""
-    bin_count = min(max(_positive_int(policy.get("bin_count"), 8), 3), 20)
+    bin_count = min(max(_positive_int(policy.get("bin_count"), 8), 4), 12)
     min_value = min(values)
     max_value = max(values)
+    avg_value = sum(values) / len(values)
+    median_value = _median(values)
     if min_value == max_value:
-        bins = [len(values)]
-        labels = [str(_format_number(min_value))]
+        bin_specs = [(min_value, max_value, len(values))]
     else:
-        width = (max_value - min_value) / bin_count
+        bin_width = (max_value - min_value) / bin_count
         bins = [0 for _ in range(bin_count)]
         for value in values:
-            index = min(int((value - min_value) / width), bin_count - 1)
+            index = min(int((value - min_value) / bin_width), bin_count - 1)
             bins[index] += 1
-        labels = [_format_number(min_value), _format_number(max_value)]
-    max_count = max(bins) or 1
-    bars = "".join(
-        f'<div class="histogram-bar" style="height:{max(4, count / max_count * 100):.2f}%"><span>{count}</span></div>'
-        for count in bins
+        bin_specs = []
+        for index, count in enumerate(bins):
+            start = min_value + bin_width * index
+            end = max_value if index == bin_count - 1 else min_value + bin_width * (index + 1)
+            bin_specs.append((start, end, count))
+    max_count = max((count for _, _, count in bin_specs), default=1) or 1
+    bars = []
+    for start, end, count in bin_specs:
+        height_pct = 0 if count <= 0 else max(6, count / max_count * 100)
+        label = _range_label(start, end)
+        zero_class = " is-zero" if count <= 0 else ""
+        bars.append(
+            f"""
+<div class="histogram-bin" title="{html.escape(column)} {html.escape(label)}: {count:,} rows">
+  <span class="histogram-value">{count:,}</span>
+  <div class="histogram-bar-shell"><div class="histogram-bar{zero_class}" style="height:{height_pct:.2f}%"></div></div>
+  <span class="histogram-bin-label">{html.escape(label)}</span>
+</div>
+"""
+        )
+    marker = ""
+    if max_value > min_value:
+        marker_left = _percent_position(avg_value, min_value, max_value)
+        marker = f'<div class="histogram-marker" style="left:{marker_left:.2f}%"><span>Avg {_axis_number(avg_value)}</span></div>'
+    summary = _chart_summary(
+        [
+            ("Column", column),
+            ("Rows", f"{len(values):,}"),
+            ("Avg", _axis_number(avg_value)),
+            ("Median", _axis_number(median_value)),
+            ("Range", f"{_axis_number(min_value)} - {_axis_number(max_value)}"),
+        ]
     )
-    label_markup = "".join(f"<span>{html.escape(label)}</span>" for label in labels)
     return f"""
 <section class="panel">
   <h2>{html.escape(str(block.get("title") or "분포"))}</h2>
+  {summary}
   <div class="histogram-chart chart-zone">
-    <div class="histogram-bars">{bars}</div>
-    <div class="histogram-labels">{label_markup}</div>
+    <div class="histogram-plot">
+      <div class="histogram-y-axis"><span>{max_count:,}</span><span>{max_count // 2:,}</span><span>0</span></div>
+      <div class="histogram-grid" style="--bins:{len(bin_specs)}">
+        {marker}
+        {''.join(bars)}
+      </div>
+    </div>
+    <div class="axis-label histogram-x-label">{html.escape(column)} bins</div>
   </div>
 </section>
 """
@@ -527,31 +572,94 @@ def _scatter_plot(block: dict[str, Any], rows: list[dict[str, Any]]) -> str:
     points = [(xv, yv) for xv, yv in points if xv is not None and yv is not None][:limit]
     if len(points) < 2:
         return ""
-    width = 720
-    height = 260
-    pad = 34
+    width = 760
+    height = 320
+    plot_left = 58
+    plot_right = width - 24
+    plot_top = 24
+    plot_bottom = height - 58
     x_values = [item[0] for item in points]
     y_values = [item[1] for item in points]
     x_min, x_max = min(x_values), max(x_values)
     y_min, y_max = min(y_values), max(y_values)
     x_span = max(x_max - x_min, 1)
     y_span = max(y_max - y_min, 1)
+    x_domain_min = x_min - x_span * 0.06
+    x_domain_max = x_max + x_span * 0.06
+    y_domain_min = y_min - y_span * 0.08
+    y_domain_max = y_max + y_span * 0.08
+
+    def sx(value: float) -> float:
+        return plot_left + (plot_right - plot_left) * (value - x_domain_min) / max(x_domain_max - x_domain_min, 1)
+
+    def sy(value: float) -> float:
+        return plot_bottom - (plot_bottom - plot_top) * (value - y_domain_min) / max(y_domain_max - y_domain_min, 1)
+
+    grid_lines = []
+    for tick in _tick_values(y_min, y_max, 4):
+        py = sy(tick)
+        grid_lines.append(
+            f'<line x1="{plot_left}" y1="{py:.1f}" x2="{plot_right}" y2="{py:.1f}" class="grid-line"></line>'
+            f'<text x="{plot_left - 10}" y="{py + 4:.1f}" class="scatter-tick" text-anchor="end">{html.escape(_axis_number(tick))}</text>'
+        )
+    for tick in _tick_values(x_min, x_max, 4):
+        px = sx(tick)
+        grid_lines.append(
+            f'<line x1="{px:.1f}" y1="{plot_top}" x2="{px:.1f}" y2="{plot_bottom}" class="grid-line"></line>'
+            f'<text x="{px:.1f}" y="{plot_bottom + 20}" class="scatter-tick" text-anchor="middle">{html.escape(_axis_number(tick))}</text>'
+        )
+
     circles = []
     for xv, yv in points:
-        px = pad + (width - pad * 2) * (xv - x_min) / x_span
-        py = height - pad - (height - pad * 2) * (yv - y_min) / y_span
-        circles.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="4"></circle>')
+        px = sx(xv)
+        py = sy(yv)
+        circles.append(
+            f'<circle class="scatter-point" cx="{px:.1f}" cy="{py:.1f}" r="4.4">'
+            f'<title>{html.escape(x)}: {html.escape(_axis_number(xv))}, {html.escape(y)}: {html.escape(_axis_number(yv))}</title>'
+            "</circle>"
+        )
+
+    avg_x = sum(x_values) / len(x_values)
+    avg_y = sum(y_values) / len(y_values)
+    mean_lines = (
+        f'<line x1="{sx(avg_x):.1f}" y1="{plot_top}" x2="{sx(avg_x):.1f}" y2="{plot_bottom}" class="scatter-mean"></line>'
+        f'<line x1="{plot_left}" y1="{sy(avg_y):.1f}" x2="{plot_right}" y2="{sy(avg_y):.1f}" class="scatter-mean"></line>'
+    )
+    trend_markup = ""
+    trend = _linear_trend(points, x_domain_min, x_domain_max)
+    if trend:
+        x1, y1, x2, y2 = trend
+        trend_markup = (
+            f'<line x1="{sx(x1):.1f}" y1="{sy(_clamp(y1, y_domain_min, y_domain_max)):.1f}" '
+            f'x2="{sx(x2):.1f}" y2="{sy(_clamp(y2, y_domain_min, y_domain_max)):.1f}" class="scatter-trend"></line>'
+        )
+    corr = _correlation(points)
+    summary = _chart_summary(
+        [
+            ("X", x),
+            ("Y", y),
+            ("Points", f"{len(points):,}"),
+            ("Corr", f"{corr:.2f}" if corr is not None else "n/a"),
+        ]
+    )
     return f"""
 <section class="panel">
   <h2>{html.escape(str(block.get("title") or "상관/산포"))}</h2>
-  <div class="chart-zone">
+  {summary}
+  <div class="scatter-plot-wrap chart-zone">
     <svg class="scatter-chart" viewBox="0 0 {width} {height}" role="img">
-      <line x1="{pad}" y1="{height-pad}" x2="{width-pad}" y2="{height-pad}" class="axis"></line>
-      <line x1="{pad}" y1="{pad}" x2="{pad}" y2="{height-pad}" class="axis"></line>
+      <rect x="{plot_left}" y="{plot_top}" width="{plot_right - plot_left}" height="{plot_bottom - plot_top}" class="plot-bg"></rect>
+      {''.join(grid_lines)}
+      <line x1="{plot_left}" y1="{plot_bottom}" x2="{plot_right}" y2="{plot_bottom}" class="axis"></line>
+      <line x1="{plot_left}" y1="{plot_top}" x2="{plot_left}" y2="{plot_bottom}" class="axis"></line>
+      {mean_lines}
+      {trend_markup}
       {''.join(circles)}
+      <text x="{(plot_left + plot_right) / 2:.1f}" y="{height - 12}" class="scatter-axis-title" text-anchor="middle">{html.escape(x)}</text>
+      <text x="16" y="{(plot_top + plot_bottom) / 2:.1f}" class="scatter-axis-title" text-anchor="middle" transform="rotate(-90 16 {(plot_top + plot_bottom) / 2:.1f})">{html.escape(y)}</text>
     </svg>
   </div>
-  <div class="chart-caption"><span>{html.escape(x)}</span><span>{html.escape(y)}</span></div>
+  <div class="chart-caption"><span>{html.escape(x)}: {_axis_number(x_min)} - {_axis_number(x_max)}</span><span>{html.escape(y)}: {_axis_number(y_min)} - {_axis_number(y_max)}</span></div>
 </section>
 """
 
@@ -588,16 +696,35 @@ def _heatmap_matrix(block: dict[str, Any], rows: list[dict[str, Any]]) -> str:
         cells = []
         for col_label in col_labels:
             value = matrix.get(row_label, {}).get(col_label, 0)
-            alpha = 0.12 + (value / max_value) * 0.68 if value else 0.04
-            cells.append(f'<td style="background:rgba(37,99,235,{alpha:.2f})">{html.escape(_format_number(value))}</td>')
-        body.append(f"<tr><th>{html.escape(row_label)}</th>{''.join(cells)}</tr>")
+            intensity = min(max(value / max_value, 0), 1)
+            alpha = 0.08 + intensity * 0.78 if value else 0.03
+            text_color = "#ffffff" if intensity >= 0.58 else "#17202a"
+            cells.append(
+                f'<td class="heatmap-cell" style="background:rgba(37,99,235,{alpha:.2f});color:{text_color}" '
+                f'title="{html.escape(x)}={html.escape(row_label)}, {html.escape(series)}={html.escape(col_label)}, {html.escape(y or "count")}={html.escape(_format_number(value))}">'
+                f"{html.escape(_format_number(value))}</td>"
+            )
+        total_value = row_totals.get(row_label, 0)
+        body.append(f'<tr><th>{html.escape(row_label)}</th>{"".join(cells)}<td class="heatmap-total">{html.escape(_format_number(total_value))}</td></tr>')
+    footer_cells = "".join(f'<td class="heatmap-total">{html.escape(_format_number(col_totals.get(col_label, 0)))}</td>' for col_label in col_labels)
+    grand_total = sum(row_totals.get(row_label, 0) for row_label in row_labels)
+    summary = _chart_summary(
+        [
+            ("Rows", x),
+            ("Columns", series),
+            ("Metric", y or "count"),
+            ("Max cell", _format_number(max_value)),
+        ]
+    )
     return f"""
 <section class="panel">
   <h2>{html.escape(str(block.get("title") or "교차 히트맵"))}</h2>
+  {summary}
   <div class="heatmap-wrap chart-zone">
     <table class="heatmap-table">
-      <thead><tr><th></th>{header}</tr></thead>
+      <thead><tr><th>{html.escape(x)} \\ {html.escape(series)}</th>{header}<th class="heatmap-total">Total</th></tr></thead>
       <tbody>{''.join(body)}</tbody>
+      <tfoot><tr><th>Total</th>{footer_cells}<td class="heatmap-total">{html.escape(_format_number(grand_total))}</td></tr></tfoot>
     </table>
   </div>
 </section>
@@ -629,7 +756,10 @@ def _table(block: dict[str, Any], rows: list[dict[str, Any]], fallback_columns: 
     for index, row in enumerate(table_rows, start=1):
         row_class = _row_class(row, highlight_rules)
         row_number = f"<td>{index}</td>" if show_row_numbers else ""
-        cells = "".join(f"<td>{html.escape(_cell(row.get(column)))}</td>" for column in columns)
+        cells = "".join(
+            f'<td class="{"num-cell" if _number(row.get(column)) is not None else "text-cell"}">{html.escape(_cell(row.get(column)))}</td>'
+            for column in columns
+        )
         body.append(f'<tr class="{row_class}">{row_number}{cells}</tr>')
     return f"""
 <section class="panel">
@@ -780,7 +910,7 @@ def _rule_matches(row: dict[str, Any], rule: dict[str, Any]) -> bool:
     return actual_text == expected_text
 
 
-def _wrap_block(block: dict[str, Any], markup: str) -> str:
+def _wrap_block(block: dict[str, Any], markup: str, anchor_id: str = "") -> str:
     """각 블록을 12컬럼 grid에서 배치할 수 있는 wrapper div로 감쌉니다."""
 
     width = _safe_token(block.get("width"), {"full", "two_third", "half", "third"}, "full")
@@ -799,10 +929,86 @@ def _wrap_block(block: dict[str, Any], markup: str) -> str:
             f"emphasis-{emphasis}",
         ]
     )
-    return f'<div class="{classes}"{style_attr}>{markup}</div>'
+    id_attr = f' id="{html.escape(anchor_id)}"' if anchor_id else ""
+    return f'<div{id_attr} class="{classes}"{style_attr}>{markup}</div>'
 
 
-def _document(title: str, subtitle: str, body: list[str], plan: dict[str, Any]) -> str:
+def _side_nav_markup(title: str, nav_items: list[dict[str, str]], generated_at: str = "") -> str:
+    """Material admin 형태의 좌측 report drawer를 만듭니다."""
+
+    brand_title = str(title or "Report").strip()
+    nav_links = []
+    for index, item in enumerate(nav_items[:10], start=1):
+        anchor_id = str(item.get("anchor_id") or "").strip()
+        item_title = str(item.get("title") or "Section").strip()
+        section = str(item.get("section") or "").strip()
+        if not anchor_id:
+            continue
+        nav_links.append(
+            f"""
+<a class="side-link" href="#{html.escape(anchor_id)}" title="{html.escape(item_title)}">
+  <i>{index}</i>
+  <span class="side-link-copy">
+    <strong>{html.escape(item_title)}</strong>
+    {f'<small>{html.escape(section)}</small>' if section else ''}
+  </span>
+</a>
+"""
+        )
+    if not nav_links:
+        nav_links.append('<a class="side-link" href="#"><i>1</i><span class="side-link-copy"><strong>Overview</strong><small>Report</small></span></a>')
+    return f"""
+<aside class="side-nav">
+  <div class="side-nav-content">
+    <div class="side-brand">
+      <span class="side-brand-mark">MR</span>
+      <div class="side-brand-copy">
+        <span>Material Report</span>
+        <small>{html.escape(brand_title)}</small>
+      </div>
+    </div>
+    <div class="side-section-title">Report Sections</div>
+    <nav>
+      {''.join(nav_links)}
+    </nav>
+  </div>
+  <div class="side-footer">
+    <span>구현 시간</span>
+    <strong>{html.escape(generated_at)}</strong>
+  </div>
+</aside>
+"""
+
+
+def _block_nav_label(block_id: str) -> str:
+    """block_id를 좌측 navigation의 짧은 섹션 라벨로 변환합니다."""
+
+    mapping = {
+        "report_header": "Overview",
+        "scope_summary": "Context",
+        "kpi_card_grid": "KPI",
+        "metric_delta_card_grid": "KPI",
+        "trend_line_chart": "Trend",
+        "comparison_bar_chart": "Comparison",
+        "grouped_bar_chart": "Comparison",
+        "stacked_comparison_bar": "Composition",
+        "donut_chart": "Composition",
+        "distribution_histogram": "Distribution",
+        "scatter_plot": "Relationship",
+        "heatmap_matrix": "Matrix",
+        "pivot_matrix_table": "Matrix",
+        "ranking_table": "Ranking",
+        "rank_change_table": "Ranking",
+        "detail_data_table": "Detail",
+        "outlier_exception_table": "Exceptions",
+        "insight_bullets": "Insights",
+        "recommendation_list": "Actions",
+        "method_note": "Method",
+    }
+    return mapping.get(block_id, "Section")
+
+
+def _document(title: str, subtitle: str, body: list[str], plan: dict[str, Any], nav_items: list[dict[str, str]] | None = None) -> str:
     """완성된 블록 HTML 목록을 하나의 독립 실행 HTML 문서로 감쌉니다.
 
     외부 CSS/JS 파일 없이 Playground나 다운로드 파일만으로 바로 열리게 하려고
@@ -811,6 +1017,8 @@ def _document(title: str, subtitle: str, body: list[str], plan: dict[str, Any]) 
 
     visual_style = _dict(plan.get("visual_style"))
     main_style = _visual_style_attr(visual_style)
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    nav_markup = _side_nav_markup(title, nav_items or [], generated_at)
     return f"""<!doctype html>
 <html lang="ko">
 <head>
@@ -818,10 +1026,39 @@ def _document(title: str, subtitle: str, body: list[str], plan: dict[str, Any]) 
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{html.escape(title)}</title>
   <style>
-    :root {{ color-scheme: light; --ink:#17202a; --muted:#5f6b7a; --line:#d8dee8; --surface:#f5f7fb; --accent:#0f766e; --accent-2:#2563eb; --warn:#9f580a; --report-width:1180px; --panel-pad:18px; --grid-gap:18px; --h1-size:32px; --h2-size:19px; --body-size:14px; }}
+    :root {{ color-scheme: light; --ink:#202124; --muted:#6f7785; --line:#dde3ec; --surface:#f5f7fb; --canvas:#f4f6f9; --drawer:#ffffff; --nav-ink:#2f3744; --nav-muted:#7b8493; --nav-soft:#98a2b3; --accent:#0f766e; --accent-2:#2563eb; --appbar:#4e73df; --appbar-mid:#3f57e8; --appbar-2:#5b2fd3; --warn:#9f580a; --nav-width:312px; --report-width:1320px; --panel-pad:22px; --grid-gap:20px; --h1-size:32px; --h2-size:19px; --body-size:14px; --elevation-1:0 1px 2px rgba(60,64,67,.12), 0 1px 3px rgba(60,64,67,.16); --elevation-2:0 8px 24px rgba(60,64,67,.14); }}
     * {{ box-sizing:border-box; }}
-    body {{ margin:0; font-family:Segoe UI, Arial, sans-serif; font-size:var(--body-size); color:var(--ink); background:#ffffff; line-height:1.5; }}
-    main {{ max-width:var(--report-width); margin:0 auto; padding:28px 22px 44px; }}
+    html {{ scroll-behavior:smooth; }}
+    body {{ margin:0; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", "Malgun Gothic", Roboto, Arial, sans-serif; font-size:var(--body-size); color:var(--ink); background:var(--canvas); line-height:1.5; }}
+    .nav-toggle-input {{ position:fixed; width:1px; height:1px; opacity:0; pointer-events:none; }}
+    .nav-toggle-button {{ position:fixed; top:29px; left:calc(var(--nav-width) - 64px); z-index:40; width:38px; height:38px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; border:1px solid #dfe7ff; border-radius:12px; background:#f4f6ff; color:var(--appbar); box-shadow:none; cursor:pointer; transition:left .22s ease, top .22s ease, transform .22s ease, background .22s ease, box-shadow .22s ease; }}
+    .nav-toggle-button:hover {{ transform:translateY(-1px); background:#edf2ff; box-shadow:0 8px 18px rgba(78,115,223,.16); }}
+    .nav-toggle-button span {{ display:block; width:17px; height:2px; border-radius:999px; background:currentColor; }}
+    .app-shell {{ min-height:100vh; display:grid; grid-template-columns:var(--nav-width) minmax(0, 1fr); transition:grid-template-columns .22s ease; }}
+    .nav-toggle-input:checked ~ .nav-toggle-button {{ top:22px; left:18px; background:#fff; box-shadow:0 10px 26px rgba(60,64,67,.18); }}
+    .nav-toggle-input:checked ~ .app-shell {{ grid-template-columns:0 minmax(0, 1fr); }}
+    .nav-toggle-input:checked ~ .app-shell .side-nav {{ width:0; border-right:0; box-shadow:none; opacity:0; pointer-events:none; }}
+    .nav-toggle-input:checked ~ .app-shell main {{ padding-left:76px; }}
+    .side-nav {{ position:sticky; top:0; height:100vh; width:var(--nav-width); min-width:0; overflow:hidden; background:linear-gradient(180deg, #ffffff 0%, #fbfcff 68%, #ffffff 100%); border-right:1px solid #dfe5ef; box-shadow:8px 0 24px rgba(60,64,67,.06); z-index:20; display:flex; flex-direction:column; opacity:1; transition:width .22s ease, opacity .18s ease, border-color .22s ease, box-shadow .22s ease; }}
+    .side-nav-content {{ flex:1; min-height:0; overflow:auto; padding-bottom:16px; scrollbar-width:thin; scrollbar-color:#cbd5e1 transparent; }}
+    .side-brand {{ min-height:92px; display:flex; align-items:center; gap:14px; padding:18px 78px 18px 28px; border-bottom:1px solid #edf1f6; color:var(--nav-ink); letter-spacing:0; }}
+    .side-brand-mark {{ flex:0 0 auto; display:inline-grid; place-items:center; width:44px; height:44px; border-radius:13px; background:linear-gradient(135deg, var(--appbar), var(--appbar-2)); color:#fff; font-size:16px; font-weight:760; letter-spacing:0; box-shadow:0 8px 18px rgba(78, 115, 223, .30); }}
+    .side-brand-copy {{ min-width:0; }}
+    .side-brand-copy > span {{ display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--nav-ink); font-size:15px; line-height:1.25; font-weight:720; letter-spacing:0; }}
+    .side-brand small {{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:4px; color:var(--nav-muted); font-size:12px; line-height:1.42; font-weight:560; letter-spacing:0; word-break:keep-all; }}
+    .side-section-title {{ margin:24px 28px 10px; color:var(--nav-soft); font-size:11px; line-height:1.2; font-weight:760; letter-spacing:0; text-transform:uppercase; }}
+    .side-link {{ display:grid; grid-template-columns:32px minmax(0,1fr); gap:12px; align-items:start; min-height:54px; margin:3px 18px; padding:10px 12px; border:1px solid transparent; border-radius:12px; color:var(--nav-muted); text-decoration:none; font-weight:620; transition:background .18s ease, border-color .18s ease, box-shadow .18s ease, color .18s ease; }}
+    .side-link:hover {{ background:#f5f7ff; border-color:#e0e7ff; color:var(--nav-ink); box-shadow:0 8px 18px rgba(78,115,223,.08); }}
+    .side-link i {{ display:inline-grid; place-items:center; width:30px; height:30px; border-radius:9px; background:#f0f4f8; color:#647084; font-style:normal; font-size:12px; font-weight:720; letter-spacing:0; }}
+    .side-link:hover i {{ background:linear-gradient(135deg, var(--appbar), var(--appbar-2)); color:#fff; }}
+    .side-link-copy {{ min-width:0; display:block; }}
+    .side-link strong {{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; color:inherit; font-size:13px; line-height:1.38; font-weight:650; letter-spacing:0; word-break:keep-all; overflow-wrap:anywhere; }}
+    .side-link small {{ display:block; margin-top:3px; color:var(--nav-soft); font-size:10.5px; line-height:1.25; font-weight:650; letter-spacing:0; }}
+    .side-footer {{ margin-top:auto; padding:16px 28px 22px; border-top:1px solid #edf1f6; background:linear-gradient(180deg, #ffffff, #fbfcff); color:var(--muted); }}
+    .side-footer span {{ display:block; margin-bottom:4px; font-size:10.5px; font-weight:720; letter-spacing:0; text-transform:uppercase; }}
+    .side-footer strong {{ display:block; color:#475569; font-size:12px; font-weight:620; font-variant-numeric:tabular-nums; }}
+    .workspace {{ min-width:0; display:flex; flex-direction:column; }}
+    main {{ width:100%; max-width:var(--report-width); margin:0 auto; padding:28px 32px 46px 56px; transition:padding-left .22s ease; }}
     .report-grid {{ display:grid; grid-template-columns:repeat(12, minmax(0, 1fr)); gap:var(--grid-gap); align-items:stretch; grid-auto-flow:row dense; }}
     .report-block {{ min-width:0; display:flex; flex-direction:column; font-size:var(--body-size); --block-accent:var(--accent); }}
     .block-full {{ grid-column:span 12; }}
@@ -829,15 +1066,19 @@ def _document(title: str, subtitle: str, body: list[str], plan: dict[str, Any]) 
     .block-half {{ grid-column:span 6; }}
     .block-third {{ grid-column:span 4; }}
     .report-block > .hero, .report-block > .panel, .report-block > .notice, .report-block > .method-note {{ margin-top:0; height:100%; flex:1; }}
-    .hero {{ display:flex; justify-content:space-between; gap:20px; align-items:flex-end; padding:26px 0 20px; border-bottom:2px solid var(--ink); }}
-    .eyebrow {{ margin:0 0 8px; font-size:12px; font-weight:700; color:var(--accent); letter-spacing:0; }}
+    .hero {{ display:flex; justify-content:space-between; gap:22px; align-items:flex-end; padding:30px; border:0; border-radius:8px; background:linear-gradient(135deg, var(--appbar) 0%, var(--appbar-mid) 48%, var(--appbar-2) 100%); color:#fff; box-shadow:0 14px 32px rgba(78, 115, 223, .24); }}
+    .eyebrow {{ margin:0 0 8px; font-size:12px; font-weight:800; color:rgba(255,255,255,.76); letter-spacing:.04em; }}
     h1 {{ margin:0; font-size:var(--h1-size); line-height:1.2; }}
-    h2 {{ margin:0 0 14px; font-size:var(--h2-size); }}
+    h2 {{ margin:0 0 15px; font-size:var(--h2-size); letter-spacing:0; }}
+    .hero .subtitle {{ color:rgba(255,255,255,.72); }}
     .subtitle {{ margin:10px 0 0; color:var(--muted); max-width:760px; }}
-    .hero-meta {{ display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--muted); text-align:right; }}
-    .panel, .notice, .method-note {{ margin-top:22px; padding:var(--panel-pad); border:1px solid var(--line); border-radius:8px; background:#fff; display:flex; flex-direction:column; }}
-    .notice {{ background:#fff8ed; border-color:#f0c98b; color:#4c3104; }}
-    .method-note {{ background:var(--surface); color:var(--muted); }}
+    .hero-meta {{ display:flex; flex-direction:column; gap:6px; font-size:13px; color:rgba(255,255,255,.72); text-align:right; }}
+    .hero-meta span {{ min-height:26px; display:inline-flex; justify-content:flex-end; align-items:center; padding:4px 9px; border-radius:999px; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.18); }}
+    .panel, .notice, .method-note {{ margin-top:22px; padding:var(--panel-pad); border:0; border-radius:8px; background:#fff; display:flex; flex-direction:column; box-shadow:var(--elevation-1); }}
+    .panel h2 {{ position:relative; padding-left:13px; }}
+    .panel h2::before {{ content:""; position:absolute; left:0; top:.18em; bottom:.18em; width:4px; border-radius:999px; background:var(--block-accent); }}
+    .notice {{ background:#fff8ed; border:1px solid #f0c98b; color:#4c3104; }}
+    .method-note {{ background:#fff; color:var(--muted); border-top:3px solid #e2e8f0; }}
     .block-lead {{ margin:0 0 12px; color:var(--muted); max-width:72ch; }}
     .block-footnote {{ margin:12px 0 0; font-size:12px; color:var(--muted); }}
     .annotation-list {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }}
@@ -858,14 +1099,14 @@ def _document(title: str, subtitle: str, body: list[str], plan: dict[str, Any]) 
     .chart-zone {{ flex:1; min-height:220px; }}
     .block-third .chart-zone, .block-half .chart-zone {{ min-height:240px; }}
     .scope-grid, .kpi-grid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:12px; }}
-    .scope-grid div, .kpi-card {{ border:1px solid var(--line); border-radius:8px; padding:14px; background:var(--surface); }}
+    .scope-grid div, .kpi-card {{ border:1px solid #e3e8f0; border-radius:8px; padding:16px; background:#fff; box-shadow:0 1px 2px rgba(60,64,67,.08); }}
     .scope-grid b, .kpi-card span {{ display:block; font-size:12px; color:var(--muted); margin-bottom:8px; }}
     .scope-grid span, .kpi-card strong {{ display:block; font-size:22px; font-weight:750; overflow-wrap:anywhere; }}
     .kpi-card small {{ display:block; margin-top:6px; color:var(--muted); }}
     .bar-chart {{ display:grid; gap:10px; align-content:center; }}
     .bar-row {{ display:grid; grid-template-columns:minmax(110px, 180px) 1fr minmax(70px, auto); gap:10px; align-items:center; }}
     .bar-label, .bar-value {{ font-size:13px; color:var(--muted); overflow-wrap:anywhere; }}
-    .bar-track {{ height:14px; background:#e7edf5; border-radius:999px; overflow:hidden; }}
+    .bar-track {{ height:14px; background:#edf2f7; border-radius:999px; overflow:hidden; }}
     .bar-fill {{ height:100%; background:linear-gradient(90deg, var(--accent), var(--accent-2)); }}
     .bar-fill.solid {{ background:var(--accent); }}
     .donut-layout {{ display:grid; grid-template-columns:minmax(160px, 220px) 1fr; gap:18px; align-items:center; }}
@@ -891,42 +1132,77 @@ def _document(title: str, subtitle: str, body: list[str], plan: dict[str, Any]) 
     .stacked-label, .stacked-total {{ font-size:13px; color:var(--muted); overflow-wrap:anywhere; }}
     .stacked-track {{ display:flex; height:18px; overflow:hidden; border-radius:999px; background:#e7edf5; }}
     .stacked-segment {{ height:100%; min-width:1px; }}
-    .histogram-chart {{ display:grid; grid-template-rows:1fr auto; gap:8px; }}
-    .histogram-bars {{ display:flex; gap:7px; align-items:end; min-height:210px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--surface); }}
-    .histogram-bar {{ flex:1; min-width:10px; border-radius:6px 6px 0 0; background:linear-gradient(180deg, var(--accent-2), var(--accent)); position:relative; }}
-    .histogram-bar span {{ position:absolute; left:50%; bottom:100%; transform:translateX(-50%); margin-bottom:3px; font-size:11px; color:var(--muted); }}
-    .histogram-labels {{ display:flex; justify-content:space-between; font-size:12px; color:var(--muted); }}
-    .line-chart, .scatter-chart {{ width:100%; height:auto; max-height:300px; background:var(--surface); border:1px solid var(--line); border-radius:8px; }}
+    .chart-summary {{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; }}
+    .chart-summary span {{ display:inline-flex; align-items:center; gap:6px; min-height:28px; padding:5px 9px; border:1px solid #dbe3ee; border-radius:999px; background:#f8fafc; color:#17202a; font-size:12px; font-variant-numeric:tabular-nums; }}
+    .chart-summary b {{ color:var(--muted); font-weight:700; }}
+    .axis-label {{ color:var(--muted); font-size:12px; font-weight:700; }}
+    .histogram-chart {{ display:grid; gap:8px; }}
+    .histogram-plot {{ display:grid; grid-template-columns:42px minmax(0, 1fr); gap:10px; align-items:stretch; }}
+    .histogram-y-axis {{ display:flex; flex-direction:column; justify-content:space-between; text-align:right; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; padding:24px 0 44px; }}
+    .histogram-grid {{ position:relative; display:grid; grid-template-columns:repeat(var(--bins), minmax(0, 1fr)); gap:8px; min-height:260px; padding:22px 12px 42px; overflow:hidden; border:1px solid var(--line); border-radius:8px; background:repeating-linear-gradient(to bottom, #f8fafc 0, #f8fafc 57px, #e8edf5 58px), linear-gradient(180deg, #fbfcfe, #f5f7fb); }}
+    .histogram-bin {{ position:relative; z-index:1; display:grid; grid-template-rows:22px minmax(118px, 1fr) 34px; gap:5px; align-items:end; min-width:0; }}
+    .histogram-value {{ align-self:end; text-align:center; color:#475569; font-size:11px; font-weight:700; font-variant-numeric:tabular-nums; }}
+    .histogram-bar-shell {{ height:100%; min-height:118px; display:flex; align-items:flex-end; }}
+    .histogram-bar {{ width:100%; min-height:2px; border-radius:7px 7px 2px 2px; background:linear-gradient(180deg, var(--accent-2), var(--block-accent)); box-shadow:0 8px 18px rgba(15, 23, 42, .12); }}
+    .histogram-bar.is-zero {{ opacity:.35; background:#cbd5e1; box-shadow:none; }}
+    .histogram-bin-label {{ align-self:start; text-align:center; color:var(--muted); font-size:10px; line-height:1.15; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }}
+    .histogram-marker {{ position:absolute; top:8px; bottom:39px; z-index:2; border-left:2px dashed rgba(220, 38, 38, .58); pointer-events:none; }}
+    .histogram-marker span {{ position:absolute; top:0; left:0; transform:translateX(-50%); white-space:nowrap; padding:2px 6px; border-radius:999px; background:#fff1f2; color:#9f1239; border:1px solid #fecdd3; font-size:11px; font-weight:750; }}
+    .histogram-x-label {{ text-align:center; margin-left:52px; }}
+    .line-chart {{ width:100%; height:auto; max-height:300px; background:#fff; border:1px solid var(--line); border-radius:8px; }}
     .line-chart .axis {{ stroke:#94a3b8; stroke-width:1; }}
     .line-chart .trend-line {{ fill:none; stroke:var(--accent-2); stroke-width:3; }}
     .line-chart circle {{ fill:#ffffff; stroke:var(--accent-2); stroke-width:2; }}
-    .scatter-chart .axis {{ stroke:#94a3b8; stroke-width:1; }}
-    .scatter-chart circle {{ fill:var(--accent-2); opacity:.72; }}
+    .scatter-plot-wrap {{ min-height:280px; }}
+    .scatter-chart {{ display:block; width:100%; height:auto; max-height:360px; background:#ffffff; border:1px solid var(--line); border-radius:8px; }}
+    .scatter-chart .plot-bg {{ fill:#f8fafc; stroke:#dbe3ee; stroke-width:1; }}
+    .scatter-chart .grid-line {{ stroke:#e4eaf2; stroke-width:1; }}
+    .scatter-chart .axis {{ stroke:#64748b; stroke-width:1.2; }}
+    .scatter-chart .scatter-mean {{ stroke:#f59e0b; stroke-width:1.5; stroke-dasharray:5 5; opacity:.9; }}
+    .scatter-chart .scatter-trend {{ stroke:var(--accent-2); stroke-width:2.4; opacity:.92; }}
+    .scatter-chart .scatter-point {{ fill:var(--block-accent); fill-opacity:.78; stroke:#ffffff; stroke-width:1.4; }}
+    .scatter-chart .scatter-tick {{ fill:#64748b; font-size:11px; font-variant-numeric:tabular-nums; }}
+    .scatter-chart .scatter-axis-title {{ fill:#334155; font-size:12px; font-weight:750; }}
     .chart-caption {{ display:flex; justify-content:space-between; color:var(--muted); font-size:13px; margin-top:6px; }}
-    .heatmap-wrap {{ overflow:auto; }}
-    .heatmap-table {{ min-width:max-content; }}
-    .heatmap-table th, .heatmap-table td {{ text-align:center; white-space:nowrap; }}
-    .heatmap-table tbody th {{ background:#f1f5f9; position:sticky; left:0; z-index:1; text-align:left; }}
+    .heatmap-wrap {{ overflow:auto; border:1px solid var(--line); border-radius:8px; background:#fff; }}
+    .heatmap-table {{ min-width:max-content; border-collapse:separate; border-spacing:0; }}
+    .heatmap-table th, .heatmap-table td {{ text-align:center; white-space:nowrap; border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0; font-variant-numeric:tabular-nums; }}
+    .heatmap-table thead th {{ background:#f1f5f9; color:#334155; }}
+    .heatmap-table tbody th {{ background:#f8fafc; position:sticky; left:0; z-index:1; text-align:left; font-weight:750; }}
+    .heatmap-table tfoot th, .heatmap-table tfoot td, .heatmap-total {{ background:#eef3f8; color:#17202a; font-weight:800; }}
+    .heatmap-cell {{ font-weight:750; }}
     .table-wrap {{ overflow:auto; border:1px solid var(--line); border-radius:8px; }}
     table {{ border-collapse:collapse; min-width:100%; font-size:13px; }}
     th, td {{ padding:9px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }}
     th {{ position:sticky; top:0; background:#eef3f8; font-weight:700; }}
+    .num-cell {{ text-align:right; font-variant-numeric:tabular-nums; }}
+    .text-cell {{ overflow-wrap:anywhere; }}
     tr.row-info td {{ background:#f0f9ff; }}
     tr.row-positive td {{ background:#f0fdf4; }}
     tr.row-warning td {{ background:#fffbeb; }}
     tr.row-danger td {{ background:#fef2f2; }}
     tr.row-neutral td {{ background:#f8fafc; }}
     .insight-list {{ margin:0; padding-left:20px; }}
+    @media (max-width: 1100px) {{ .app-shell {{ grid-template-columns:1fr; }} .side-nav, .nav-toggle-button {{ display:none; }} }}
     @media (max-width: 900px) {{ .block-half, .block-third, .block-two_third {{ grid-column:span 12; }} }}
-    @media (max-width: 720px) {{ main {{ padding:22px 16px 34px; }} .hero {{ display:block; }} .hero-meta {{ text-align:left; margin-top:16px; }} .bar-row, .grouped-category, .grouped-metric-row, .stacked-row, .donut-layout {{ grid-template-columns:1fr; }} .chart-zone {{ min-height:180px; }} }}
+    @media (max-width: 720px) {{ main {{ padding:18px 14px 34px; }} .hero {{ display:block; padding:24px 20px; }} .hero-meta {{ text-align:left; margin-top:16px; }} .bar-row, .grouped-category, .grouped-metric-row, .stacked-row, .donut-layout {{ grid-template-columns:1fr; }} .chart-zone {{ min-height:180px; }} .histogram-plot {{ grid-template-columns:32px minmax(0, 1fr); }} .histogram-grid {{ gap:4px; padding-left:8px; padding-right:8px; }} .histogram-bin-label {{ font-size:9px; }} }}
   </style>
 </head>
 <body>
-  <main{main_style}>
-    <div class="report-grid">
-      {''.join(body)}
+  <input class="nav-toggle-input" type="checkbox" id="nav-toggle">
+  <label class="nav-toggle-button" for="nav-toggle" aria-label="목차 접기/펼치기">
+    <span></span><span></span><span></span>
+  </label>
+  <div class="app-shell">
+    {nav_markup}
+    <div class="workspace">
+      <main{main_style}>
+        <div class="report-grid">
+          {''.join(body)}
+        </div>
+      </main>
     </div>
-  </main>
+  </div>
 </body>
 </html>"""
 
@@ -1063,6 +1339,114 @@ def _format_number(value: Any) -> str:
     return f"{number:.0f}" if number.is_integer() else f"{number:.2f}"
 
 
+def _axis_number(value: Any) -> str:
+    """차트 축/구간 라벨에 맞게 너무 길지 않은 숫자 문자열을 만듭니다."""
+
+    number = _number(value)
+    if number is None:
+        return str(value)
+    if abs(number) >= 1000:
+        text = f"{number:,.0f}" if number.is_integer() else f"{number:,.1f}"
+    elif abs(number) >= 100:
+        text = f"{number:.1f}"
+    else:
+        text = f"{number:.2f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def _range_label(start: float, end: float) -> str:
+    """히스토그램 x축에 표시할 구간 라벨을 만듭니다."""
+
+    start_text = _axis_number(start)
+    end_text = _axis_number(end)
+    return start_text if start_text == end_text else f"{start_text}-{end_text}"
+
+
+def _median(values: list[float]) -> float:
+    """정렬된 숫자 목록의 중앙값을 계산합니다."""
+
+    if not values:
+        return 0
+    mid = len(values) // 2
+    if len(values) % 2:
+        return values[mid]
+    return (values[mid - 1] + values[mid]) / 2
+
+
+def _percent_position(value: float, min_value: float, max_value: float) -> float:
+    """값을 0-100% 위치로 변환하고 차트 밖으로 나가지 않게 제한합니다."""
+
+    span = max(max_value - min_value, 1)
+    return _clamp((value - min_value) / span * 100, 0, 100)
+
+
+def _tick_values(min_value: float, max_value: float, count: int) -> list[float]:
+    """간단한 min/mid/max 기반 tick 값을 만듭니다."""
+
+    if count <= 1 or min_value == max_value:
+        return [min_value]
+    ticks = [min_value + (max_value - min_value) * index / (count - 1) for index in range(count)]
+    result: list[float] = []
+    for tick in ticks:
+        if not any(abs(tick - existing) < 1e-9 for existing in result):
+            result.append(tick)
+    return result
+
+
+def _correlation(points: list[tuple[float, float]]) -> float | None:
+    """산점도에 표시할 Pearson 상관계수를 계산합니다."""
+
+    if len(points) < 2:
+        return None
+    avg_x = sum(x for x, _ in points) / len(points)
+    avg_y = sum(y for _, y in points) / len(points)
+    numerator = sum((x - avg_x) * (y - avg_y) for x, y in points)
+    denom_x = sum((x - avg_x) ** 2 for x, _ in points)
+    denom_y = sum((y - avg_y) ** 2 for _, y in points)
+    denominator = (denom_x * denom_y) ** 0.5
+    return numerator / denominator if denominator else None
+
+
+def _linear_trend(points: list[tuple[float, float]], x_min: float, x_max: float) -> tuple[float, float, float, float] | None:
+    """산점도 추세선의 양 끝 좌표를 값 기준으로 계산합니다."""
+
+    if len(points) < 2:
+        return None
+    avg_x = sum(x for x, _ in points) / len(points)
+    avg_y = sum(y for _, y in points) / len(points)
+    denominator = sum((x - avg_x) ** 2 for x, _ in points)
+    if not denominator:
+        return None
+    slope = sum((x - avg_x) * (y - avg_y) for x, y in points) / denominator
+    intercept = avg_y - slope * avg_x
+    return (x_min, slope * x_min + intercept, x_max, slope * x_max + intercept)
+
+
+def _clamp(value: float, min_value: float, max_value: float) -> float:
+    """숫자를 min/max 범위 안으로 제한합니다."""
+
+    return max(min_value, min(max_value, value))
+
+
+def _chart_summary(items: list[tuple[str, Any]]) -> str:
+    """차트 위쪽에 보여줄 작은 메타/수치 chip 묶음을 만듭니다."""
+
+    chips = []
+    for label, value in items:
+        value_text = str(value or "").strip()
+        if not value_text:
+            continue
+        chips.append(f'<span><b>{html.escape(str(label))}</b>{html.escape(value_text)}</span>')
+    return f'<div class="chart-summary">{"".join(chips)}</div>' if chips else ""
+
+
+def _short_label(value: Any, limit: int) -> str:
+    """내비게이션처럼 좁은 공간에 넣을 짧은 label을 만듭니다."""
+
+    text = str(value or "").strip()
+    return text if len(text) <= limit else text[: max(1, limit - 1)].rstrip() + "…"
+
+
 def _cell(value: Any) -> str:
     """테이블 셀에 넣을 값을 문자열로 변환합니다."""
 
@@ -1073,10 +1457,10 @@ def _cell(value: Any) -> str:
     return _format_number(value) if _number(value) is not None else str(value)
 
 
-def _filename_hint(title: str) -> str:
-    """리포트 제목을 다운로드 파일명 힌트로 쓸 수 있게 정리합니다."""
+def _filename_hint(title: Any) -> str:
+    """리포트 제목/LLM 파일명 힌트를 다운로드 파일명 힌트로 쓸 수 있게 정리합니다."""
 
-    safe = "".join(ch if ch.isalnum() else "_" for ch in title.lower()).strip("_")
+    safe = "".join(ch if ch.isalnum() else "_" for ch in str(title or "")).strip("_")
     return (safe or "html_report")[:80]
 
 

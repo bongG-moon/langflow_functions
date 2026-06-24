@@ -2,7 +2,8 @@ from __future__ import annotations
 
 """03a LLM 계획 프롬프트 노드.
 
-이 파일은 LLM에게 보낼 프롬프트를 만듭니다.
+이 파일은 Langflow 기본 Prompt Template 노드에 연결할 변수 값을 준비합니다.
+Prompt Template 본문은 `docs/PROMPT_TEMPLATE.md` 내용을 직접 붙여넣어 사용합니다.
 중요한 점은 LLM이 HTML 전체 코드를 직접 만들지 않고, 렌더러가 안전하게 처리할 수 있는
 `report_plan` JSON만 보완하게 한다는 것입니다.
 """
@@ -13,7 +14,6 @@ from typing import Any
 
 from lfx.custom.custom_component.component import Component
 from lfx.io import DataInput, MessageTextInput, Output
-from lfx.schema.data import Data
 from lfx.schema.message import Message
 
 
@@ -39,123 +39,97 @@ def build_llm_html_plan_prompt_payload(
     data = _dict(_dict(payload.get("api_response")).get("data"))
     rows = _rows(data.get("rows"))
 
-    # 아래 prompt는 LLM에게 전달되는 실제 지시문입니다.
-    # JSON만 반환하도록 강하게 제한해서 03b 검증 노드가 안정적으로 읽을 수 있게 합니다.
-    prompt = "\n".join(
-        [
-            "You are the LLM planning node for a Langflow HTML data report flow.",
-            "Your job is to perform one LLM step: first interpret the user request into a structured intent, then design the report plan from that interpretation.",
-            "Use the provided base plan only as a fallback draft. The raw question and raw view_request are the primary source of truth for structure, visual blocks, color, density, and layout.",
-            "The allowed component catalog is an internal template library. Choose, reorder, resize, and configure those components to satisfy the interpreted request.",
-            "The renderer will convert your JSON into a static standalone HTML file.",
-            "",
-            "Hard rules:",
-            "- Return one strict JSON object only. Do not wrap it in markdown.",
-            "- Do not output HTML, CSS, JavaScript, SVG, script tags, markdown, or prose outside JSON.",
-            "- Use only block_id values from the allowed components.",
-            "- Use only real column names from the data profile or preview rows.",
-            "- request_interpretation is required. It must summarize the user goal, requested visuals, layout intent, style intent, data focus, target block count, and unmet requests if any.",
-            "- Treat view_request as a high-priority display requirement. If it asks for KPI cards, donut chart, bar chart, trend chart, table, or other visual blocks, include those blocks whenever the data contract allows it.",
-            "- Treat automated_visual_hint as a low-confidence keyword hint only. Ignore it when it conflicts with the raw question or view_request.",
-            "- If question and view_request seem different, satisfy the analytical question with the visual form requested in view_request instead of ignoring view_request.",
-            "- Prefer a composed report: KPI cards plus chart/table/narrative blocks when the data supports them.",
-            "- Convert natural-language display requests into explicit blocks, ordering, widths, chart_policy, table_policy, visual_style, and annotations.",
-            "- Reflect requested structure words such as 상단, 가운데, 하단, 좌우, 나란히, 먼저, 아래, 크게, 작게, 촘촘하게 in block order, width, density, and emphasis.",
-            "- Reflect requested color/style words such as 파란색, 초록, 회색, 차분한, 경고, 강조, 깔끔한, 임원용 in visual_style and block.style.accent_color.",
-            "- Create a rich report spec: audience, goal, narrative, visual style, block order, block width, emphasis, density, font scale, annotations, and table/chart policies.",
-            "- Keep text concise enough to fit inside cards and headings.",
-            "- If there are many rows or many columns, use compact density and put detailed tables later.",
-            "- Use full width for wide tables and trend charts; use half/two_third/third widths for complementary comparisons.",
-            "- Keep side-by-side blocks visually balanced: pair half+half or third+two_third blocks with similar density, similar title length, and similar content depth.",
-            "- Do not place a long table next to a compact chart; put wide/long tables on a full-width row below charts.",
-            "- Keep chart blocks in the same row comparable in height by using concise titles/descriptions, limiting categories, and avoiding long annotations.",
-            "- Prefer one strong chart per analytical question rather than many tiny charts with inconsistent spacing.",
-            "- Use narrative fields for concise findings, caveats, and recommendations. Do not make unsupported claims.",
-            "- Use annotations for short callouts such as highest value, warning, or follow-up point when visible from the preview/profile.",
-            "- Use table_policy and chart_policy to specify exact columns, sorting, limits, row numbers, and value display.",
-            "- Never invent data values. Titles, labels, and narrative may be user-friendly, but bindings must reference real columns.",
-            "",
-            "Allowed block ids and base contracts:",
-            json.dumps(_component_contracts(catalog), ensure_ascii=False, indent=2),
-            "",
-            "Internal template presets/defaults from the component catalog:",
-            json.dumps(_catalog_template_guidance(catalog), ensure_ascii=False, indent=2),
-            "",
-            "Available columns and data profile:",
-            json.dumps(_profile_summary(profile), ensure_ascii=False, indent=2),
-            "",
-            "User request. This is the most important input for visual composition:",
-            json.dumps(
-                {
-                    "question": request.get("question") or profile.get("question") or "",
-                    "view_request": request.get("view_request") or "",
-                    "view_request_priority": "high",
-                    "automated_visual_hint": _dict(request.get("visual_request")),
-                    "target_block_count_hint": _dict(base_plan.get("composition")).get("target_block_count", ""),
-                    "selected_dataset_id": request.get("selected_dataset_id") or "",
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            "",
-            "Request-to-template composition guidance:",
-            "- Do not ask the user to provide component_catalog_json. The catalog above is the template library you should use internally.",
-            "- If view_request names specific elements, include them unless the data contract makes them impossible.",
-            "- If the requested element is impossible, choose the closest supported component and explain the limitation in narrative.caveats or reasoning_notes.",
-            "- Use requested colors/styles as preferences, but keep the report readable and professional.",
-            "- The final plan should look intentionally designed from request_interpretation, not like the deterministic base plan copied unchanged.",
-            "- If raw question/view_request asks for a simple summary, keep the report concise. If it asks for detailed diagnosis or full flow, use more supporting blocks.",
-            "- Before returning, verify that each important item in request_interpretation.requested_visuals and layout_intent is either represented in blocks or listed in request_interpretation.unmet_requests with a reason.",
-            "",
-            "Preview rows for context:",
-            json.dumps(rows[:8], ensure_ascii=False, indent=2, default=str),
-            "",
-            "Deterministic base plan. This is fallback material only; use it for safe defaults, but do not let it override the raw user request or your request_interpretation:",
-            json.dumps(base_plan, ensure_ascii=False, indent=2, default=str),
-            "",
-            "Additional design instruction from the user/operator:",
-            str(design_instruction or "").strip() or "(none)",
-            "",
-            "Return JSON schema:",
-            json.dumps(_schema_hint(), ensure_ascii=False, indent=2),
-            "",
-            "Style token guidance:",
-            "- visual_style.density: compact for dense operational views; comfortable for executive summaries.",
-            "- visual_style.font_scale: normal by default; large for executive/KPI-first reports; small for table-heavy query review.",
-            "- audience: operator, analyst, executive, engineer, or general.",
-            "- report_goal: monitor, compare, diagnose, explain, audit, or explore.",
-            "- block.width: full, two_third, half, or third.",
-            "- block.emphasis: high for the 1-2 most important blocks; medium for useful supporting blocks; low for notes.",
-            "- block.description and block.insight should be one short sentence each.",
-            "- block.annotations should be 0-4 compact callouts; tone can be info, positive, warning, danger, or neutral.",
-            "- block.style.accent_color can be a hex color such as #0f766e or #2563eb.",
-            "",
-            "Chart selection guidance:",
-            "- trend_line_chart: use for time/date changes and time-series monitoring. Korean cues: 추이, 변화, 시계열, 일별, 월별, 선그래프, 라인 그래프. Usually full width.",
-            "- comparison_bar_chart: use for one metric by one category, ranking-style comparisons, and ordinary bar chart requests. Korean cues: 비교, 막대그래프, 막대 그래프, 항목별, 유형별, 문항별.",
-            "- grouped_bar_chart: use when the user asks to compare multiple metrics by the same category, such as WIP and production by process. Korean cues: 묶음 막대, 복수 지표, 여러 지표, 나란히 비교.",
-            "- stacked_comparison_bar: use for breakdown/composition inside each category, such as process by status or product mix by date. Korean cues: 누적 막대, 상태별 구성, breakdown.",
-            "- donut_chart: use for share/ratio/composition questions. Korean cues: 도넛차트, 도넛 차트, 원형차트, 파이차트, 비중, 구성비. Limit to 6-8 categories and use detail table for the rest.",
-            "- distribution_histogram: use for distribution, spread, skew, deviation, or outlier screening of one numeric column. Korean cues: 분포, 분포도, 편차, 산포.",
-            "- scatter_plot: use for relationship/correlation between two numeric metrics. Korean cues: 상관관계, 산점도, 관계도.",
-            "- heatmap_matrix: use for two-dimensional cross comparison where color intensity helps scanning. Korean cues: 히트맵, 매트릭스, 교차표, 피벗.",
-            "- detail_data_table and ranking_table support charts. If view_request asks for 표, 상세표, 테이블, 목록, or raw rows, include a table block even when charts are also present.",
-            "",
-            "Layout consistency guidance:",
-            "- Start with a full-width header/scope, then a balanced KPI/chart row, then detailed tables.",
-            "- In a 12-column grid, use full=12, two_third=8, half=6, third=4. Avoid odd combinations that leave gaps.",
-            "- If two chart cards are side by side, choose the same width and density for both.",
-            "- If one block has long labels, many legend items, or many table columns, make it full width.",
-            "- Use chart_policy.limit to keep legends and labels inside the card; prefer 6-8 categories for donut/stacked/grouped charts.",
-        ]
-    )
+    prompt_variables = _prompt_variables(request, profile, catalog, base_plan, rows, design_instruction)
+
     return {
         "prompt_type": "llm_html_report_plan",
-        "prompt": prompt,
+        "prompt_variables": prompt_variables,
+        "prompt_variable_names": list(prompt_variables.keys()),
         "payload": payload,
         "base_plan": base_plan,
         "schema_hint": _schema_hint(),
     }
+
+
+def _prompt_variables(
+    request: dict[str, Any],
+    profile: dict[str, Any],
+    catalog: dict[str, Any],
+    base_plan: dict[str, Any],
+    rows: list[dict[str, Any]],
+    design_instruction: str,
+) -> dict[str, str]:
+    """Prompt Template에 연결할 변수들을 짧은 JSON 문자열로 만듭니다."""
+
+    user_request = {
+        "question": request.get("question") or profile.get("question") or "",
+        "view_request": request.get("view_request") or "",
+        "view_request_priority": "high",
+        "automated_visual_hint": _dict(request.get("visual_request")),
+        "target_block_count_hint": _dict(base_plan.get("composition")).get("target_block_count", ""),
+        "selected_dataset_id": request.get("selected_dataset_id") or "",
+    }
+    report_context = {
+        "allowed_components": _component_contracts(catalog),
+        "template_presets": _catalog_template_guidance(catalog),
+        "data_profile": _profile_summary(profile),
+        "preview_rows": rows[:8],
+        "deterministic_base_plan": base_plan,
+        "base_plan_usage": "fallback_only_do_not_override_user_request",
+    }
+    return {
+        "사용자_요청_JSON": _json_text(user_request),
+        "리포트_컨텍스트_JSON": _json_text(report_context),
+        "디자인_지시": str(design_instruction or "").strip() or "(none)",
+        "렌더링_규칙": _rendering_rules_text(),
+        "출력_스키마_JSON": _json_text(_schema_hint()),
+    }
+
+
+def _rendering_rules_text() -> str:
+    """LLM이 레이아웃/차트/스타일을 결정할 때 지켜야 하는 규칙을 제공합니다."""
+
+    return "\n".join(
+        [
+            "스타일 토큰 지침:",
+            "- 전체 리포트는 Material admin dashboard 계열의 업무용 UI로 렌더링됩니다. 어두운 top app bar, 좌측 섹션 drawer, elevated white card, 명확한 table/chart hierarchy를 전제로 설계하세요.",
+            "- visual_style.density: 운영자가 자주 보는 촘촘한 화면은 compact, 임원 요약 화면은 comfortable을 사용하세요.",
+            "- visual_style.font_scale: 기본은 normal, KPI 중심 임원 보고서는 large, 표 중심 조회 결과는 small을 사용하세요.",
+            "- audience: operator, analyst, executive, engineer, general 중 하나를 선택하세요.",
+            "- report_goal: monitor, compare, diagnose, explain, audit, explore 중 하나를 선택하세요.",
+            "- block.width: full, two_third, half, third 중 하나를 사용하세요.",
+            "- block.emphasis: 가장 중요한 1-2개 블록은 high, 보조 블록은 medium, 참고성 블록은 low를 사용하세요.",
+            "- block.description과 block.insight는 각각 짧은 한 문장으로 작성하세요.",
+            "- block.annotations는 0-4개의 짧은 callout만 사용하고, tone은 info, positive, warning, danger, neutral 중 하나를 쓰세요.",
+            "- block.style.accent_color는 #0f766e 또는 #2563eb 같은 hex color를 사용할 수 있습니다.",
+            "",
+            "차트 선택 지침:",
+            "- trend_line_chart: 시간/날짜 변화와 시계열 모니터링에 사용하세요. 한국어 단서: 추이, 변화, 시계열, 일별, 월별, 선그래프, 라인 그래프. 보통 full width가 적합합니다.",
+            "- comparison_bar_chart: 하나의 metric을 하나의 category 기준으로 비교하거나 순위를 볼 때 사용하세요. 한국어 단서: 비교, 막대그래프, 막대 그래프, 항목별, 유형별, 문항별.",
+            "- grouped_bar_chart: 같은 category 기준으로 여러 metric을 나란히 비교할 때 사용하세요. 예: 공정별 WIP와 생산량. 한국어 단서: 묶음 막대, 복수 지표, 여러 지표, 나란히 비교.",
+            "- stacked_comparison_bar: category 내부의 breakdown이나 구성비를 보여줄 때 사용하세요. 예: 공정별 상태 구성, 날짜별 제품 mix. 한국어 단서: 누적 막대, 상태별 구성, breakdown.",
+            "- donut_chart: 비중/구성비/점유율 질문에 사용하세요. 한국어 단서: 도넛차트, 도넛 차트, 원형차트, 파이차트, 비중, 구성비. category는 6-8개로 제한하고 나머지는 상세 표로 보완하세요.",
+            "- distribution_histogram: 숫자 컬럼 하나의 분포, 산포, 편차, 왜도, 이상치 후보를 볼 때 사용하세요. 한국어 단서: 분포, 분포도, 편차, 산포.",
+            "- scatter_plot: 두 숫자 metric 간 관계나 상관을 볼 때 사용하세요. 한국어 단서: 상관관계, 산점도, 관계도.",
+            "- heatmap_matrix: 두 dimension을 교차 비교하고 색 농도로 빠르게 스캔해야 할 때 사용하세요. 한국어 단서: 히트맵, 매트릭스, 교차표, 피벗.",
+            "- detail_data_table과 ranking_table은 차트를 보완합니다. view_request가 표, 상세표, 테이블, 목록, raw rows를 요청하면 차트가 있더라도 표 블록을 포함하세요.",
+            "",
+            "레이아웃 일관성 지침:",
+            "- full-width header/scope로 시작하고, 그다음 KPI/차트 row를 균형 있게 배치한 뒤, 상세 표를 뒤쪽에 놓으세요.",
+            "- 12-column grid 기준으로 full=12, two_third=8, half=6, third=4로 생각하세요. 빈 공간이 어색하게 남는 조합은 피하세요.",
+            "- 차트 카드 두 개를 나란히 놓는다면 두 카드의 width와 density를 동일하게 맞추세요.",
+            "- 차트는 그림만 두지 말고 축 이름, tick, 수치 요약, 범주/구간 라벨을 읽을 수 있게 설계하세요.",
+            "- histogram/scatter/heatmap은 단독 해석이 가능하도록 column, metric, row 수, 범위, 상관계수, 최대 cell 같은 보조 요약을 포함하는 구성을 선호하세요.",
+            "- 라벨이 길거나 legend 항목이 많거나 표 컬럼이 많으면 full width로 배치하세요.",
+            "- chart_policy.limit를 사용해 legend와 label이 카드 안에 들어오게 하세요. donut/stacked/grouped chart는 category 6-8개를 선호하세요.",
+        ]
+    )
+
+
+def _json_text(value: Any) -> str:
+    """프롬프트 변수로 넘길 값을 읽기 쉬운 JSON 문자열로 변환합니다."""
+
+    return json.dumps(value, ensure_ascii=False, indent=2, default=str)
 
 
 def _component_contracts(catalog: dict[str, Any]) -> list[dict[str, Any]]:
@@ -246,20 +220,21 @@ def _schema_hint() -> dict[str, Any]:
 
     return {
         "request_interpretation": {
-            "user_goal": "What the user wants to understand or decide",
-            "data_focus": "Main dataset, metric, dimension, period, or segment to focus on",
+            "user_goal": "사용자가 이해하거나 결정하고 싶은 핵심 목표",
+            "data_focus": "중점적으로 볼 데이터셋, metric, dimension, 기간, segment",
             "requested_visuals": ["kpi", "trend", "bar", "donut", "table", "insight"],
-            "requested_blocks": ["allowed component ids that satisfy the request"],
-            "layout_intent": "Top/middle/bottom, side-by-side, emphasis, or reading order requested by the user",
-            "style_intent": "Color, tone, density, audience, or visual mood requested by the user",
+            "requested_blocks": ["사용자 요청을 만족하는 허용 component id"],
+            "layout_intent": "사용자가 요청한 상단/중단/하단, 좌우 배치, 강조, 읽는 순서",
+            "style_intent": "사용자가 요청한 색상, 톤, 밀도, 대상 독자, 시각적 분위기",
             "target_block_count": 6,
-            "unmet_requests": ["requested item that cannot be supported and why"],
+            "unmet_requests": ["지원할 수 없는 요청 항목과 그 이유"],
         },
-        "title": "Short report title",
-        "subtitle": "Short subtitle or scope statement",
-        "audience": "operator | analyst | executive | engineer | general",
-        "report_goal": "monitor | compare | diagnose | explain | audit | explore",
-        "layout": "dashboard | query_review | diagnosis | executive_summary | detail_review",
+        "title": "짧은 리포트 제목",
+        "subtitle": "짧은 부제 또는 데이터 범위 설명",
+        "filename_hint": "다운로드 파일명 힌트. 확장자 없이 사용자 요청과 데이터 초점을 반영해 20-60자 정도로 작성. 예: 공정별_WIP_위험_대시보드",
+        "audience": "operator | analyst | executive | engineer | general 중 하나",
+        "report_goal": "monitor | compare | diagnose | explain | audit | explore 중 하나",
+        "layout": "dashboard | query_review | diagnosis | executive_summary | detail_review 중 하나",
         "visual_style": {
             "density": "compact | comfortable",
             "font_scale": "small | normal | large",
@@ -268,39 +243,39 @@ def _schema_hint() -> dict[str, Any]:
             "max_width": "normal | wide",
         },
         "narrative": {
-            "executive_summary": "One concise summary sentence",
-            "key_findings": ["short finding grounded in the data/profile"],
-            "caveats": ["data limitation or interpretation caveat"],
-            "recommendations": ["next action or follow-up check"],
-            "data_quality_notes": ["preview/data_ref/row-count note"],
+            "executive_summary": "핵심 요약 한 문장",
+            "key_findings": ["데이터/profile에 근거한 짧은 발견사항"],
+            "caveats": ["데이터 한계 또는 해석 시 주의사항"],
+            "recommendations": ["다음 조치 또는 후속 확인사항"],
+            "data_quality_notes": ["preview/data_ref/row-count 관련 참고사항"],
         },
         "reading_order": ["kpi", "trend", "comparison", "detail"],
         "blocks": [
             {
-                "block_id": "allowed component id",
-                "title": "Block title",
+                "block_id": "허용된 component id",
+                "title": "블록 제목",
                 "section": "Overview | Trend | Comparison | Detail | Quality | Action",
-                "description": "One short sentence explaining what this block shows",
-                "insight": "One short sentence explaining why it matters",
-                "badge": "Optional short label",
+                "description": "이 블록이 보여주는 내용을 설명하는 짧은 한 문장",
+                "insight": "이 블록이 중요한 이유를 설명하는 짧은 한 문장",
+                "badge": "선택 사항인 짧은 라벨",
                 "width": "full | two_third | half | third",
                 "emphasis": "high | medium | low",
                 "density": "compact | comfortable",
                 "font_scale": "small | normal | large",
-                "x": "real column name for chart/table when needed",
-                "y": "real numeric column name for chart when needed",
-                "series": "real dimension column when needed",
-                "columns": ["real column names for tables"],
-                "metrics": [{"label": "short label", "column": "real numeric column", "aggregation": "sum | avg | min | max | count | nunique"}],
-                "sort": {"by": "real column name", "direction": "desc | asc"},
+                "x": "필요한 경우 실제 chart/table 기준 컬럼명",
+                "y": "필요한 경우 실제 숫자 metric 컬럼명",
+                "series": "필요한 경우 실제 dimension 컬럼명",
+                "columns": ["표에 사용할 실제 컬럼명"],
+                "metrics": [{"label": "짧은 라벨", "column": "실제 숫자 컬럼명", "aggregation": "sum | avg | min | max | count | nunique"}],
+                "sort": {"by": "실제 컬럼명", "direction": "desc | asc"},
                 "limit": 10,
                 "chart_policy": {
                     "chart_type": "bar | horizontal_bar | grouped_bar | stacked_bar | line | donut | histogram | scatter | heatmap",
                     "orientation": "horizontal | vertical",
-                    "x": "real column",
-                    "y": "real numeric column",
-                    "series": "real column",
-                    "metrics": [{"label": "short label", "column": "real numeric column", "aggregation": "sum | avg | min | max | count | nunique"}],
+                    "x": "실제 컬럼명",
+                    "y": "실제 숫자 컬럼명",
+                    "series": "실제 컬럼명",
+                    "metrics": [{"label": "짧은 라벨", "column": "실제 숫자 컬럼명", "aggregation": "sum | avg | min | max | count | nunique"}],
                     "limit": 10,
                     "bin_count": 8,
                     "show_values": True,
@@ -308,14 +283,14 @@ def _schema_hint() -> dict[str, Any]:
                     "show_percent": True,
                     "normalize": False,
                 },
-                "table_policy": {"columns": ["real column names"], "sort_by": "real column", "sort_direction": "desc", "limit": 50, "show_row_numbers": True},
-                "annotations": [{"label": "short label", "value": "short text/value", "tone": "info | positive | warning | danger | neutral"}],
-                "highlight_rules": [{"column": "real column", "operator": "eq | ne | gt | gte | lt | lte | contains", "value": "comparison value", "tone": "warning | danger | positive | info"}],
-                "footnote": "Optional short note",
+                "table_policy": {"columns": ["실제 컬럼명"], "sort_by": "실제 컬럼명", "sort_direction": "desc", "limit": 50, "show_row_numbers": True},
+                "annotations": [{"label": "짧은 라벨", "value": "짧은 텍스트/값", "tone": "info | positive | warning | danger | neutral"}],
+                "highlight_rules": [{"column": "실제 컬럼명", "operator": "eq | ne | gt | gte | lt | lte | contains", "value": "비교값", "tone": "warning | danger | positive | info"}],
+                "footnote": "선택 사항인 짧은 주석",
                 "style": {"accent_color": "#0f766e"},
             }
         ],
-        "reasoning_notes": ["brief reason for block and layout choices"],
+        "reasoning_notes": ["블록과 레이아웃 선택 이유를 짧게 설명"],
     }
 
 
@@ -358,20 +333,48 @@ def _rows(value: Any) -> list[dict[str, Any]]:
 class LlmHtmlPlanPromptBuilder(Component):
     """Langflow 화면에 표시되는 03a 커스텀 컴포넌트 클래스."""
 
-    display_name = "03a LLM 구조/요소 설계 프롬프트"
-    description = "질문과 보고 싶은 방식을 기준으로 LLM이 기본 요소 양식을 조합해 구조, 색상, 배치를 설계하도록 프롬프트를 만듭니다."
+    display_name = "03a 프롬프트 변수 준비"
+    description = "Langflow 기본 Prompt Template에 연결할 변수 값을 개별 출력으로 준비합니다."
     icon = "Sparkles"
     inputs = [
         DataInput(name="payload", display_name="기본 계획", required=True),
         MessageTextInput(name="design_instruction", display_name="추가 디자인 지시", required=False, advanced=True),
     ]
     outputs = [
-        Output(name="llm_prompt", display_name="LLM 프롬프트", method="build_prompt"),
-        Output(name="prompt_payload", display_name="프롬프트 데이터", method="build_payload"),
+        Output(name="user_request_json", display_name="사용자_요청_JSON", method="build_user_request_json", group_outputs=True),
+        Output(name="report_context_json", display_name="리포트_컨텍스트_JSON", method="build_report_context_json", group_outputs=True),
+        Output(name="design_instruction_text", display_name="디자인_지시", method="build_design_instruction_text", group_outputs=True),
+        Output(name="rendering_rules", display_name="렌더링_규칙", method="build_rendering_rules", group_outputs=True),
+        Output(name="output_schema_json", display_name="출력_스키마_JSON", method="build_output_schema_json", group_outputs=True),
     ]
 
-    def build_payload(self) -> Data:
-        """프롬프트와 base_plan/schema_hint를 포함한 Data 출력을 만듭니다."""
+    def build_user_request_json(self) -> Message:
+        """Prompt Template의 {사용자_요청_JSON} 변수에 연결할 사용자 요청 JSON을 만듭니다."""
+
+        return self._prompt_variable_message("사용자_요청_JSON")
+
+    def build_report_context_json(self) -> Message:
+        """Prompt Template의 {리포트_컨텍스트_JSON} 변수에 연결할 리포트 컨텍스트 JSON을 만듭니다."""
+
+        return self._prompt_variable_message("리포트_컨텍스트_JSON")
+
+    def build_design_instruction_text(self) -> Message:
+        """Prompt Template의 {디자인_지시} 변수에 연결할 추가 디자인 지시를 만듭니다."""
+
+        return self._prompt_variable_message("디자인_지시")
+
+    def build_rendering_rules(self) -> Message:
+        """Prompt Template의 {렌더링_규칙} 변수에 연결할 렌더링 규칙을 만듭니다."""
+
+        return self._prompt_variable_message("렌더링_규칙")
+
+    def build_output_schema_json(self) -> Message:
+        """Prompt Template의 {출력_스키마_JSON} 변수에 연결할 출력 스키마 JSON을 만듭니다."""
+
+        return self._prompt_variable_message("출력_스키마_JSON")
+
+    def _prompt_variable_message(self, key: str) -> Message:
+        """중복 계산을 피하기 위해 공통 방식으로 Prompt Template 변수 값을 꺼냅니다."""
 
         result = build_llm_html_plan_prompt_payload(
             getattr(self, "payload", None),
@@ -379,15 +382,7 @@ class LlmHtmlPlanPromptBuilder(Component):
         )
         self.status = {
             "prompt_type": result.get("prompt_type"),
-            "prompt_chars": len(str(result.get("prompt") or "")),
+            "outputs": result.get("prompt_variable_names", []),
         }
-        return Data(data=result)
-
-    def build_prompt(self) -> Message:
-        """LLM 컴포넌트의 입력에 바로 연결할 수 있는 Message 프롬프트를 만듭니다."""
-
-        result = build_llm_html_plan_prompt_payload(
-            getattr(self, "payload", None),
-            design_instruction=getattr(self, "design_instruction", ""),
-        )
-        return Message(text=str(result.get("prompt") or ""))
+        variables = _dict(result.get("prompt_variables"))
+        return Message(text=str(variables.get(key) or ""))

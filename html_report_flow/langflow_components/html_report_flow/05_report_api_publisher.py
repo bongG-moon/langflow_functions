@@ -57,7 +57,13 @@ def publish_html_report(
         "available_datasets": _list(payload.get("available_datasets") or request.get("available_datasets")),
         "report_plan": report_plan,
         "ttl_hours": _positive_int(ttl_hours, 24),
-        "filename_hint": _clean(html_report.get("filename_hint") or report_plan.get("title") or "report"),
+        "filename_hint": _clean(
+            html_report.get("filename_hint")
+            or report_plan.get("filename_hint")
+            or report_plan.get("title")
+            or html_report.get("title")
+            or "report"
+        ),
     }
 
     try:

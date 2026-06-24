@@ -18,11 +18,14 @@
 -> 01 데이터 구조 분석
 -> 02 리포트 요소 카탈로그
 -> 03 기본 리포트 계획
--> 03a LLM 계획 프롬프트
+-> 03a 프롬프트 변수 준비
+-> Prompt Template
 -> LLM
 -> 03b LLM 계획 검증
 -> 04 HTML 렌더링
 ```
+
+Prompt Template의 template 칸에는 `docs/PROMPT_TEMPLATE.md`의 `Prompt Template 본문`을 복사해 넣습니다. `03a 프롬프트 변수 준비`는 `사용자_요청_JSON`, `리포트_컨텍스트_JSON`, `디자인_지시`, `렌더링_규칙`, `출력_스키마_JSON`만 출력하므로, 이 5개를 Prompt Template의 같은 이름 변수 입력에 연결합니다.
 
 최종 출력은 목적에 따라 둘 중 하나를 연결합니다.
 

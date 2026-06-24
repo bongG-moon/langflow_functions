@@ -20,6 +20,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query, Response
 from pydantic import BaseModel, Field
@@ -176,7 +177,7 @@ def download_report(report_id: str, token: str = Query(default="")) -> Response:
     return Response(
         content=_read_html(report_id).encode("utf-8"),
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _content_disposition(filename)},
     )
 
 
@@ -393,13 +394,43 @@ def _valid_report_id(report_id: str) -> bool:
 
 
 def _safe_html_filename(value: Any) -> str:
-    """다운로드 파일명으로 쓰기 안전한 `.html` 이름을 만듭니다."""
+    """다운로드 파일명으로 쓰기 안전한 `.html` 이름을 만듭니다.
 
-    raw = str(value or "report").strip().lower()
-    raw = re.sub(r"\.html?$", "", raw)
-    raw = re.sub(r"[^a-z0-9._-]+", "_", raw)
+    예전 로직은 영문/숫자만 허용해서 `공정별_WIP_리포트` 같은 한글 이름이
+    전부 `_`로 바뀐 뒤 사라졌습니다. 여기서는 한글/영문/숫자와 일부 안전한
+    구분자만 남기고, Windows 파일명에 문제가 되는 문자만 제거합니다.
+    """
+
+    raw = str(value or "report").strip()
+    raw = re.sub(r"\.html?$", "", raw, flags=re.I)
+    raw = re.sub(r"[\\/:*?\"<>|\r\n\t]+", "_", raw)
+    raw = re.sub(r"\s+", "_", raw)
+    raw = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in raw)
     raw = raw.strip("._-") or "report"
     return f"{raw[:80]}.html"
+
+
+def _content_disposition(filename: str) -> str:
+    """브라우저가 한글 다운로드 파일명을 인식하도록 헤더 값을 만듭니다.
+
+    `filename`은 오래된 브라우저용 ASCII fallback이고, `filename*`는 RFC 5987
+    방식의 UTF-8 파일명입니다. 최신 Edge/Chrome은 `filename*` 값을 우선 사용합니다.
+    """
+
+    safe_filename = _safe_html_filename(filename)
+    fallback = _ascii_filename_fallback(safe_filename)
+    encoded = quote(safe_filename, safe="")
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
+
+
+def _ascii_filename_fallback(filename: str) -> str:
+    """한글 파일명을 지원하지 않는 환경을 위한 영문 fallback 파일명을 만듭니다."""
+
+    ascii_name = str(filename or "report.html").encode("ascii", errors="ignore").decode("ascii")
+    ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "_", ascii_name)
+    ascii_name = re.sub(r"\.html?$", "", ascii_name, flags=re.I)
+    ascii_name = ascii_name.strip("._-") or "report"
+    return f"{ascii_name[:80]}.html"
 
 
 def _hash_token(token: str) -> str:

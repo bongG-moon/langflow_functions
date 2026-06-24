@@ -10,5 +10,6 @@
 | `sample_inventory_flow.csv` | `재고 상태 구성비와 창고별 입출고를 비교해줘` | 도넛, 누적 구성 막대, 묶음 막대 |
 | `sample_energy_usage.csv` | `kWh 추이와 downtime 상관관계, 장비별 사용량을 보여줘` | 추이 선 그래프, 산점도, 비교 막대 |
 | `sample_customer_funnel.csv` | `stage별 전환율과 segment breakdown을 보여줘` | 누적 구성 막대, 도넛, 순위 표 |
+| `sample_instruction_stress.csv` | `라인/공정별 WIP, 생산량, 불량, 수율, 지연 상태를 종합해서 병목과 위험 공정을 확인하고 싶어` | 지시문 반영 테스트용: KPI, 추이, 묶음/누적 막대, 도넛, 히스토그램, 산점도, 위험 표 |
 
 PowerShell 화면에서 한글이 깨져 보여도 파일은 UTF-8입니다. Langflow 입력칸이나 UTF-8 환경에서 테스트하면 정상적으로 읽힙니다.
