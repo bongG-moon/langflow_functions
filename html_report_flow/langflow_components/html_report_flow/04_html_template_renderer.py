@@ -459,19 +459,37 @@ def _line_chart(block: dict[str, Any], rows: list[dict[str, Any]]) -> str:
     if len(points) < 2:
         return ""
     width = 720
-    height = 240
-    pad = 32
+    height = 260
+    pad_x = 36
+    pad_top = 38
+    pad_bottom = 38
     values = [value for _, value in points]
     min_value = min(values)
     max_value = max(values)
     span = max(max_value - min_value, 1)
     coords = []
     for index, (_, value) in enumerate(points):
-        px = pad + (width - pad * 2) * index / max(len(points) - 1, 1)
-        py = height - pad - (height - pad * 2) * (value - min_value) / span
+        px = pad_x + (width - pad_x * 2) * index / max(len(points) - 1, 1)
+        py = height - pad_bottom - (height - pad_top - pad_bottom) * (value - min_value) / span
         coords.append((px, py))
     polyline = " ".join(f"{xv:.1f},{yv:.1f}" for xv, yv in coords)
-    circles = "".join(f'<circle cx="{xv:.1f}" cy="{yv:.1f}" r="3"></circle>' for xv, yv in coords)
+    point_marks = []
+    for (label, value), (xv, yv) in zip(points, coords):
+        label_y = yv - 12 if yv > pad_top + 18 else yv + 22
+        anchor = "middle"
+        if xv < pad_x + 18:
+            anchor = "start"
+        elif xv > width - pad_x - 18:
+            anchor = "end"
+        point_marks.append(
+            f"""
+<g class="line-point">
+  <circle cx="{xv:.1f}" cy="{yv:.1f}" r="3.5"></circle>
+  <text x="{xv:.1f}" y="{label_y:.1f}" text-anchor="{anchor}" class="point-value">{html.escape(_format_number(value))}</text>
+  <title>{html.escape(str(label))}: {html.escape(_format_number(value))}</title>
+</g>
+"""
+        )
     first_label = html.escape(str(points[0][0]))
     last_label = html.escape(str(points[-1][0]))
     return f"""
@@ -479,9 +497,9 @@ def _line_chart(block: dict[str, Any], rows: list[dict[str, Any]]) -> str:
   <h2>{html.escape(str(block.get("title") or "시간에 따른 변화"))}</h2>
   <div class="chart-zone">
     <svg class="line-chart" viewBox="0 0 {width} {height}" role="img">
-      <line x1="{pad}" y1="{height-pad}" x2="{width-pad}" y2="{height-pad}" class="axis"></line>
+      <line x1="{pad_x}" y1="{height-pad_bottom}" x2="{width-pad_x}" y2="{height-pad_bottom}" class="axis"></line>
       <polyline points="{polyline}" class="trend-line"></polyline>
-      {circles}
+      {''.join(point_marks)}
     </svg>
   </div>
   <div class="chart-caption"><span>{first_label}</span><span>{last_label}</span></div>
@@ -1153,6 +1171,7 @@ def _document(title: str, subtitle: str, body: list[str], plan: dict[str, Any], 
     .line-chart .axis {{ stroke:#94a3b8; stroke-width:1; }}
     .line-chart .trend-line {{ fill:none; stroke:var(--accent-2); stroke-width:3; }}
     .line-chart circle {{ fill:#ffffff; stroke:var(--accent-2); stroke-width:2; }}
+    .line-chart .point-value {{ fill:#334155; stroke:#ffffff; stroke-width:4px; paint-order:stroke; font-size:11px; font-weight:720; font-variant-numeric:tabular-nums; }}
     .scatter-plot-wrap {{ min-height:280px; }}
     .scatter-chart {{ display:block; width:100%; height:auto; max-height:360px; background:#ffffff; border:1px solid var(--line); border-radius:8px; }}
     .scatter-chart .plot-bg {{ fill:#f8fafc; stroke:#dbe3ee; stroke-width:1; }}
