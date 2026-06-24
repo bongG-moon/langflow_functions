@@ -179,11 +179,11 @@ def _hints(question: str) -> dict[str, bool]:
 
     text = str(question or "").lower()
     return {
-        "summary": _has(text, ["요약", "현황", "핵심", "주요", "summary", "overview", "kpi"]),
-        "comparison": _has(text, ["비교", "차이", "별", "compare", "comparison", "versus", "vs"]),
-        "trend": _has(text, ["추이", "변화", "기간", "날짜", "일별", "주별", "월별", "trend", "daily", "weekly", "monthly"]),
+        "summary": _has(text, ["요약", "현황", "핵심", "주요", "지표", "카드", "summary", "overview", "kpi", "card"]),
+        "comparison": _has(text, ["비교", "차이", "별", "막대", "그래프", "차트", "compare", "comparison", "versus", "vs", "bar", "chart"]),
+        "trend": _has(text, ["추이", "변화", "기간", "날짜", "일별", "주별", "월별", "시계열", "선그래프", "선 그래프", "라인", "trend", "daily", "weekly", "monthly", "line", "timeline"]),
         "ranking": _has(text, ["상위", "하위", "top", "bottom", "순위", "랭킹", "가장 많은", "가장 적은"]),
-        "detail": _has(text, ["상세", "목록", "리스트", "row", "raw", "원본", "그대로", "보여줘", "조회"]),
+        "detail": _has(text, ["상세", "목록", "리스트", "표", "테이블", "상세표", "row", "raw", "table", "원본", "그대로", "보여줘", "조회"]),
         "exception": _has(text, ["이상", "문제", "경고", "오류", "리스크", "초과", "미달", "exception", "error", "warning", "risk"]),
         "report": _has(text, ["리포트", "보고서", "html", "dashboard", "대시보드", "공유"]),
     }

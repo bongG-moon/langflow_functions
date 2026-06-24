@@ -136,17 +136,54 @@ def _recommend_components(profile: dict[str, Any], question: str, components: li
     warnings = _list(profile.get("warnings"))
     errors = _list(profile.get("errors"))
     recs: list[dict[str, Any]] = []
-    asks_summary = bool(hints.get("summary") or hints.get("report")) or _contains(question, ["summary", "overview", "dashboard", "monitor", "kpi", "요약", "현황", "대시보드", "리포트", "보고서"])
-    asks_trend = bool(hints.get("trend")) or _contains(question, ["trend", "daily", "weekly", "monthly", "date", "time", "timeline", "추이", "변화", "기간", "일별", "월별"])
-    asks_comparison = bool(hints.get("comparison")) or _contains(question, ["compare", "comparison", "by ", "bar", "rank", "비교", "막대", "공정별", "제품별", "지역별", "채널별"])
-    asks_composition = _contains(question, ["도넛", "donut", "비중", "구성비", "점유율", "share", "ratio", "composition", "mix"])
-    asks_grouped = _contains(question, ["동시", "여러", "복수", "묶음", "grouped", "multiple", "wip production", "wip와 생산", "비교 그래프", "inbound", "outbound", "orders"])
-    asks_breakdown = _contains(question, ["breakdown", "누적", "stacked", "상태별", "stage", "segment", "funnel"])
-    asks_heatmap = _contains(question, ["heatmap", "히트맵", "matrix", "pivot", "cross", "교차"])
-    asks_distribution = _contains(question, ["분포", "편차", "산포", "histogram", "distribution", "deviation", "spread", "variance"])
-    asks_relationship = _contains(question, ["상관", "관계", "scatter", "산점도", "correlation", "relationship"])
-    asks_ranking = bool(hints.get("ranking")) or _contains(question, ["rank", "ranking", "top", "bottom", "상위", "하위", "순위"])
-    asks_exception = bool(hints.get("exception")) or _contains(question, ["warning", "danger", "defect", "diagnose", "risk", "exception", "이상", "문제", "경고", "오류", "진단"])
+    # `question`에는 01번에서 만든 intent_text가 들어옵니다.
+    # 즉 사용자의 원 질문뿐 아니라 00번의 "보고 싶은 방식" 입력도 함께 포함됩니다.
+    # 여기 키워드가 좁으면 "도넛차트, 막대그래프, 추이 그래프"처럼 직접 쓴 표시 요구가
+    # 추천 요소로 이어지지 않으므로 한국어/영문 표현을 넓게 받습니다.
+    asks_summary = bool(hints.get("summary") or hints.get("report")) or _contains(
+        question,
+        ["summary", "overview", "dashboard", "monitor", "kpi", "card", "요약", "현황", "대시보드", "리포트", "보고서", "지표", "카드", "주요값", "주요 값"],
+    )
+    asks_trend = bool(hints.get("trend")) or _contains(
+        question,
+        ["trend", "daily", "weekly", "monthly", "date", "time", "timeline", "line", "line chart", "시계열", "추이", "변화", "기간", "일별", "주별", "월별", "날짜별", "시간별", "선그래프", "선 그래프", "라인그래프", "라인 그래프"],
+    )
+    asks_comparison = bool(hints.get("comparison")) or _contains(
+        question,
+        ["compare", "comparison", "by ", "bar", "bar chart", "bar graph", "chart", "비교", "막대", "막대그래프", "막대 그래프", "비교그래프", "비교 그래프", "차트", "그래프", "공정별", "제품별", "지역별", "채널별", "문항별", "유형별", "항목별"],
+    )
+    asks_composition = _contains(
+        question,
+        ["도넛", "도넛차트", "도넛 차트", "원형", "원형차트", "원형 차트", "파이", "파이차트", "파이 차트", "donut", "donut chart", "pie", "pie chart", "비중", "구성비", "점유율", "share", "ratio", "composition", "mix"],
+    )
+    asks_grouped = _contains(
+        question,
+        ["동시", "여러", "복수", "묶음", "묶음막대", "묶음 막대", "그룹막대", "그룹 막대", "나란히", "grouped", "grouped bar", "clustered", "multiple", "wip production", "wip와 생산", "비교 그래프", "inbound", "outbound", "orders"],
+    )
+    asks_breakdown = _contains(
+        question,
+        ["breakdown", "누적", "누적막대", "누적 막대", "stacked", "stacked bar", "상태별", "세그먼트", "구분별", "stage", "segment", "funnel"],
+    )
+    asks_heatmap = _contains(
+        question,
+        ["heatmap", "히트맵", "matrix", "pivot", "cross", "교차", "교차표", "매트릭스", "행렬", "피벗"],
+    )
+    asks_distribution = _contains(
+        question,
+        ["분포", "분포도", "값 분포", "편차", "산포", "histogram", "hist", "distribution", "deviation", "spread", "variance"],
+    )
+    asks_relationship = _contains(
+        question,
+        ["상관", "상관관계", "관계", "관계도", "scatter", "scatter plot", "산점도", "산포도", "correlation", "relationship"],
+    )
+    asks_ranking = bool(hints.get("ranking")) or _contains(
+        question,
+        ["rank", "ranking", "top", "top n", "bottom", "상위", "하위", "순위", "순위표", "랭킹", "상위권", "하위권"],
+    )
+    asks_exception = bool(hints.get("exception")) or _contains(
+        question,
+        ["warning", "danger", "defect", "diagnose", "risk", "exception", "이상", "예외", "문제", "경고", "오류", "진단", "불량", "결함", "위험", "리스크"],
+    )
     specific_visual = any(
         [
             asks_trend,
@@ -181,7 +218,23 @@ def _recommend_components(profile: dict[str, Any], question: str, components: li
     if warnings or errors or signals.get("needs_preview_warning"):
         add("warning_box", "preview row, data_ref, warning/error가 있습니다.", "high", {"warnings": len(warnings), "errors": len(errors), "data_is_preview": bool(shape.get("data_is_preview"))})
 
-    detail_only = bool(hints.get("detail")) and not any(hints.get(key) for key in ("summary", "comparison", "trend", "ranking", "report"))
+    asks_detail = bool(hints.get("detail")) or _contains(question, ["상세", "상세표", "표", "테이블", "목록", "리스트", "detail", "table", "raw", "row"])
+    detail_only = asks_detail and not any(
+        [
+            asks_summary,
+            asks_trend,
+            asks_comparison,
+            asks_composition,
+            asks_grouped,
+            asks_breakdown,
+            asks_heatmap,
+            asks_distribution,
+            asks_relationship,
+            asks_ranking,
+            asks_exception,
+            bool(hints.get("report")),
+        ]
+    )
     if numeric and not detail_only and (asks_summary or not specific_visual):
         add("kpi_card_grid", "숫자 metric 후보가 있어 핵심 값을 카드로 요약할 수 있습니다.", "high" if hints.get("summary") else "medium", {"metrics": [{"column": column, "aggregation": "sum"} for column in numeric[:4]]})
     if numeric and deltas:
@@ -377,12 +430,12 @@ def _contains(text: Any, needles: list[str]) -> bool:
 class HtmlComponentCatalogBuilder(Component):
     """Langflow 화면에 표시되는 02번 커스텀 컴포넌트 클래스."""
 
-    display_name = "02 리포트 요소 카탈로그"
-    description = "데이터와 요청 의도에 맞춰 사용할 수 있는 HTML 리포트 요소와 추천 블록을 만듭니다."
+    display_name = "02 기본 요소 양식/추천"
+    description = "내부 기본 요소 양식을 바탕으로 데이터와 요청 의도에 맞는 HTML 리포트 블록 후보를 추천합니다."
     icon = "LayoutTemplate"
     inputs = [
         DataInput(name="data_profile", display_name="데이터 분석 결과", required=True),
-        MessageTextInput(name="component_catalog_json", display_name="요소 양식 JSON", required=False),
+        MessageTextInput(name="component_catalog_json", display_name="요소 양식 JSON (선택)", required=False, advanced=True),
     ]
     outputs = [Output(name="html_component_catalog", display_name="요소 추천 결과", method="build_catalog")]
 

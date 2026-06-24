@@ -138,7 +138,7 @@ C:\Users\qkekt\Desktop\기능flow\html_report_flow\sample_catalogs
 | `요청 데이터` | `00 리포트 요청/데이터 불러오기.요청 데이터` |
 | `데이터 분석 결과` | `01 데이터 구조 분석.데이터 분석 결과` |
 | `요소 추천 결과` | `02 리포트 요소 카탈로그.요소 추천 결과` |
-| `최대 블록 수` | 보통 `8` 또는 `10` |
+| `블록 수 제한` | `auto` 권장. 평소에는 수정하지 않고, `00`의 `보고 싶은 방식`에서 요청한 요소/상세도를 보고 자동으로 추정합니다. |
 
 출력:
 
@@ -146,6 +146,8 @@ C:\Users\qkekt\Desktop\기능flow\html_report_flow\sample_catalogs
 | --- | --- | --- | --- |
 | `03 기본 리포트 계획` | `기본 계획` | `03a LLM 계획 프롬프트` | `기본 계획` |
 | `03 기본 리포트 계획` | `기본 계획` | `03b LLM 계획 검증` | `기본 계획` |
+
+`03`의 블록 수 제한과 `visual_request`는 안전한 fallback 초안을 만들기 위한 약한 힌트입니다. `visual_request.confidence`는 `low`로 전달되며, 최종 요청 해석과 요소 구성은 `03a -> LLM`이 원문 `질문`/`보고 싶은 방식`을 보고 `request_interpretation`을 만든 뒤 결정합니다.
 
 `03` 출력 payload에는 렌더링용 `report_plan`과 함께 03a/03b가 쓸 작은 `llm_context` 요약이 들어갑니다. 그래서 `03a`, `03b`에 `데이터 분석 결과`나 `요소 추천 결과`를 다시 연결하지 않아도 됩니다.
 
@@ -162,7 +164,7 @@ C:\Users\qkekt\Desktop\기능flow\html_report_flow\sample_catalogs
 | --- | --- | --- | --- |
 | `03a LLM 계획 프롬프트` | `LLM 프롬프트` | LLM 노드 | prompt/message 입력 |
 
-LLM은 HTML 코드가 아니라 JSON report plan만 반환해야 합니다.
+LLM은 HTML 코드가 아니라 JSON만 반환해야 합니다. 출력에는 `request_interpretation`을 포함하고, 그 해석을 근거로 `blocks`/스타일/레이아웃을 설계합니다. `{"request_interpretation": {...}, "report_plan": {...}}` 형태도 `03b`가 처리할 수 있습니다.
 
 ### 4.3 `03b LLM 계획 검증`
 
@@ -170,6 +172,8 @@ LLM은 HTML 코드가 아니라 JSON report plan만 반환해야 합니다.
 | --- | --- |
 | `기본 계획` | `03 기본 리포트 계획.기본 계획` |
 | `LLM 응답` | LLM 노드의 text/message 출력 |
+
+`03b`는 LLM 응답 중 허용되지 않는 block_id나 존재하지 않는 컬럼만 제거/보정하고, 유효한 LLM 블록은 유지합니다. JSON이 없거나 남은 블록이 하나도 없을 때만 `03` 기본 계획으로 fallback합니다.
 
 출력 연결:
 

@@ -59,6 +59,7 @@ def normalize_llm_html_plan(base_payload_value: Any, llm_response_value: Any, co
     result["llm_report_plan"] = {
         "status": "ok" if normalized_plan.get("plan_source") == "llm" else "fallback",
         "raw_plan": llm_json,
+        "request_interpretation": _dict(normalized_plan.get("request_interpretation")),
         "warnings": plan_warnings,
         "llm_text_preview": llm_text[:1200],
     }
@@ -72,18 +73,24 @@ def _normalize_plan(
     allowed_blocks: set[str],
     columns: set[str],
 ) -> tuple[dict[str, Any], list[str]]:
-    """LLM JSON 전체를 검증하고, 사용할 수 있는 block만 모아 plan을 만듭니다."""
+    """Validate the LLM output while preserving the user's interpreted intent."""
 
     warnings: list[str] = []
+    # The preferred output is one object with request_interpretation and plan fields,
+    # but this also accepts {"request_interpretation": ..., "report_plan": {...}}.
+    llm_plan = _dict(llm_json.get("report_plan")) or llm_json
+    interpretation_raw = _dict(llm_json.get("request_interpretation")) or _dict(llm_plan.get("request_interpretation"))
+    request_interpretation = _normalize_request_interpretation(interpretation_raw)
+
     base_blocks = [item for item in _list(base_plan.get("blocks")) if isinstance(item, dict)]
     base_by_id = {str(item.get("block_id")): item for item in base_blocks}
-    raw_blocks = [item for item in _list(llm_json.get("blocks")) if isinstance(item, dict)]
+    raw_blocks = [item for item in _list(llm_plan.get("blocks")) if isinstance(item, dict)]
     blocks: list[dict[str, Any]] = []
 
     for raw in raw_blocks:
         block_id = str(raw.get("block_id") or "").strip()
         if block_id not in allowed_blocks:
-            # 카탈로그에 없는 block_id는 렌더러가 알 수 없으므로 건너뜁니다.
+            # Unknown block IDs are skipped, but valid LLM blocks still survive.
             warnings.append(f"Skipped unknown block_id: {block_id or '(blank)'}")
             continue
         base = _dict(base_by_id.get(block_id))
@@ -92,9 +99,11 @@ def _normalize_plan(
             blocks.append(block)
 
     if not blocks:
-        # 모든 block이 실패하면 사용자가 빈 화면을 보지 않도록 기본 계획을 사용합니다.
         warnings.append("No valid LLM blocks remained after validation; deterministic base blocks were used.")
-        return _mark_plan(base_plan, "deterministic_fallback", warnings), warnings
+        fallback = _mark_plan(base_plan, "deterministic_fallback", warnings)
+        if request_interpretation:
+            fallback["request_interpretation"] = request_interpretation
+        return fallback, warnings
 
     if not any(block.get("block_id") == "report_header" for block in blocks) and "report_header" in allowed_blocks:
         blocks.insert(0, _normalize_block({"block_id": "report_header", "width": "full", "emphasis": "high"}, _dict(base_by_id.get("report_header")), columns, warnings))
@@ -102,19 +111,22 @@ def _normalize_plan(
     plan = deepcopy(base_plan)
     plan["plan_version"] = "html-report-plan-llm-v1"
     plan["plan_source"] = "llm"
-    plan["title"] = _short_text(llm_json.get("title"), base_plan.get("title") or "HTML 데이터 리포트", 90)
-    plan["subtitle"] = _short_text(llm_json.get("subtitle"), base_plan.get("subtitle") or "", 160)
-    plan["audience"] = _choice(llm_json.get("audience"), AUDIENCES, base_plan.get("audience") or "general")
-    plan["report_goal"] = _choice(llm_json.get("report_goal"), REPORT_GOALS, base_plan.get("report_goal") or "explore")
-    plan["layout"] = _choice(llm_json.get("layout"), LAYOUTS, base_plan.get("layout") or "dashboard")
-    plan["visual_style"] = _normalize_visual_style(_dict(llm_json.get("visual_style")), _dict(base_plan.get("visual_style")))
-    plan["narrative"] = _normalize_narrative(_dict(llm_json.get("narrative")), _dict(base_plan.get("narrative")))
-    reading_order = _normalize_string_list(llm_json.get("reading_order"), 8, 40)
+    plan["title"] = _short_text(llm_plan.get("title"), base_plan.get("title") or "HTML 데이터 리포트", 90)
+    plan["subtitle"] = _short_text(llm_plan.get("subtitle"), base_plan.get("subtitle") or "", 160)
+    plan["audience"] = _choice(llm_plan.get("audience"), AUDIENCES, base_plan.get("audience") or "general")
+    plan["report_goal"] = _choice(llm_plan.get("report_goal"), REPORT_GOALS, base_plan.get("report_goal") or "explore")
+    plan["layout"] = _choice(llm_plan.get("layout"), LAYOUTS, base_plan.get("layout") or "dashboard")
+    plan["visual_style"] = _normalize_visual_style(_dict(llm_plan.get("visual_style")), _dict(base_plan.get("visual_style")))
+    plan["narrative"] = _normalize_narrative(_dict(llm_plan.get("narrative")), _dict(base_plan.get("narrative")))
+    if request_interpretation:
+        plan["request_interpretation"] = request_interpretation
+    reading_order = _normalize_string_list(llm_plan.get("reading_order"), 8, 40)
     if reading_order:
         plan["reading_order"] = reading_order
     plan["blocks"] = blocks[:10]
     plan["warnings"] = _list(base_plan.get("warnings"))
-    plan["llm_reasoning_notes"] = [str(item)[:200] for item in _list(llm_json.get("reasoning_notes"))[:6]]
+    notes = _list(llm_plan.get("reasoning_notes")) or _list(llm_json.get("reasoning_notes"))
+    plan["llm_reasoning_notes"] = [str(item)[:200] for item in notes[:6]]
     return plan, warnings
 
 
@@ -240,6 +252,48 @@ def _normalize_narrative(raw: dict[str, Any], base: dict[str, Any]) -> dict[str,
         values = _normalize_string_list(raw.get(key), 8, 220)
         if values:
             result[key] = values
+    return result
+
+
+def _normalize_request_interpretation(raw: dict[str, Any]) -> dict[str, Any]:
+    """Keep the LLM's request understanding in a compact, renderer-safe form."""
+
+    if not raw:
+        return {}
+    result: dict[str, Any] = {}
+    for key, limit in (
+        ("user_goal", 240),
+        ("data_focus", 200),
+        ("layout_intent", 240),
+        ("style_intent", 200),
+    ):
+        value = str(raw.get(key) or "").strip()
+        if value:
+            result[key] = value[:limit]
+    for key in ("requested_visuals", "requested_blocks", "requested_order"):
+        values = _normalize_string_list(raw.get(key), 12, 80)
+        if values:
+            result[key] = values
+    unmet = []
+    for item in _list(raw.get("unmet_requests")):
+        if isinstance(item, dict):
+            request = str(item.get("request") or item.get("item") or item.get("label") or "").strip()
+            reason = str(item.get("reason") or item.get("why") or item.get("value") or "").strip()
+            text = ": ".join(part for part in (request, reason) if part)
+        else:
+            text = str(item or "").strip()
+        if text and text not in unmet:
+            unmet.append(text[:220])
+        if len(unmet) >= 8:
+            break
+    if unmet:
+        result["unmet_requests"] = unmet
+    try:
+        target = int(raw.get("target_block_count") or 0)
+    except Exception:
+        target = 0
+    if target:
+        result["target_block_count"] = max(1, min(target, 12))
     return result
 
 

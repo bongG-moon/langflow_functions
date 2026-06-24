@@ -37,6 +37,7 @@ def build_demo_report_request(
     rows = _rows(selected.get("rows"))
     columns = _strings(selected.get("columns")) or _columns_from_rows(rows)
     row_count = _positive_int(selected.get("row_count"), len(rows))
+    visual_request = _infer_visual_request(question, view_request)
 
     compact_datasets = []
     for item in datasets:
@@ -61,6 +62,7 @@ def build_demo_report_request(
             "question": str(question or ""),
             "view_request": str(view_request or ""),
             "selected_dataset_id": str(selected.get("dataset_id") or ""),
+            "visual_request": visual_request,
         },
         "available_datasets": compact_datasets,
         "api_response": {
@@ -81,6 +83,114 @@ def build_demo_report_request(
     if not rows:
         payload["warnings"].append("No rows were loaded from data_text or file_data.")
     return payload
+
+
+def _infer_visual_request(question: str, view_request: str) -> dict[str, Any]:
+    """질문/표시 요구에 직접 드러난 키워드만 약한 힌트로 추출합니다.
+
+    사람마다 작성 방식이 다르기 때문에 이 값은 최종 해석이 아닙니다.
+    LLM은 원문 질문과 원문 표시 요구를 우선하고, 이 힌트는 fallback 초안에만 참고합니다.
+    """
+
+    raw_view_request = str(view_request or "").strip()
+    text = " ".join(part for part in (str(question or ""), raw_view_request) if part).lower()
+    requested_blocks: list[str] = []
+
+    def add(block_id: str) -> None:
+        if block_id not in requested_blocks:
+            requested_blocks.append(block_id)
+
+    if _contains(text, ["kpi", "card", "\uce74\ub4dc", "\uc9c0\ud45c", "\uc8fc\uc694\uac12", "\uc8fc\uc694 \uac12"]):
+        add("kpi_card_grid")
+    if _contains(text, ["\ucd94\uc774", "\uc2dc\uacc4\uc5f4", "\uc120\uadf8\ub798\ud504", "\ub77c\uc778", "trend", "line"]):
+        add("trend_line_chart")
+    if _contains(text, ["\ube44\uad50", "\ub9c9\ub300", "bar", "comparison", "\ud56d\ubaa9\ubcc4", "\uc720\ud615\ubcc4", "\ubb38\ud56d\ubcc4"]):
+        add("comparison_bar_chart")
+    if _contains(text, ["\ub3c4\ub11b", "\uc6d0\ud615", "\ud30c\uc774", "donut", "pie", "\ube44\uc911", "\uad6c\uc131\ube44", "\uc810\uc720\uc728"]):
+        add("donut_chart")
+    if _contains(text, ["\ubb36\uc74c", "\ub098\ub780\ud788", "\ubcf5\uc218 \uc9c0\ud45c", "grouped", "clustered"]):
+        add("grouped_bar_chart")
+    if _contains(text, ["\ub204\uc801", "stacked", "breakdown", "\uc0c1\ud0dc\ubcc4", "\uad6c\ubd84\ubcc4"]):
+        add("stacked_comparison_bar")
+    if _contains(text, ["\ud788\ud2b8\ub9f5", "\uad50\ucc28", "\uad50\ucc28\ud45c", "\ub9e4\ud2b8\ub9ad\uc2a4", "pivot", "matrix", "heatmap"]):
+        add("heatmap_matrix")
+    if _contains(text, ["\ubd84\ud3ec", "\ud3b8\ucc28", "\uc0b0\ud3ec", "histogram", "distribution"]):
+        add("distribution_histogram")
+    if _contains(text, ["\uc0c1\uad00", "\uc0b0\uc810\ub3c4", "scatter", "correlation", "relationship"]):
+        add("scatter_plot")
+    if _contains(text, ["\uc21c\uc704", "\ub7ad\ud0b9", "top", "bottom", "ranking"]):
+        add("ranking_table")
+    if _contains(text, ["\uc0c1\uc138", "\uc0c1\uc138\ud45c", "\ud45c", "\ud14c\uc774\ube14", "\ubaa9\ub85d", "\ub9ac\uc2a4\ud2b8", "detail", "table", "raw"]):
+        add("detail_data_table")
+    if _contains(text, ["\ud574\uc11d", "\uc694\uc57d", "insight", "\ud575\uc2ec"]):
+        add("insight_bullets")
+    if _contains(text, ["\ucd94\ucc9c", "\uc870\uce58", "\uac1c\uc120", "\ub2e4\uc74c \ud655\uc778", "recommend"]):
+        add("recommendation_list")
+
+    complexity = "auto"
+    if _contains(text, ["\uac04\ub2e8", "\uc9e7\uac8c", "\uc694\uc57d\ub9cc", "simple", "brief"]):
+        complexity = "simple"
+    elif _contains(text, ["\uc0c1\uc138", "\ud48d\ubd80", "\ub9ce\uc774", "\uc804\uccb4", "detailed", "full"]):
+        complexity = "detailed"
+    elif _contains(text, ["\ucd18\ucd18", "\uc791\uac8c", "compact"]):
+        complexity = "compact"
+
+    target_block_count = _target_block_count(text, requested_blocks, complexity)
+    return {
+        "source": "rule_based_keyword_hint",
+        "confidence": "low",
+        "usage_note": "Raw question and view_request must win over this hint; use it only for deterministic fallback drafts.",
+        "raw_text": raw_view_request,
+        "complexity": complexity,
+        "requested_blocks": requested_blocks,
+        "target_block_count": target_block_count,
+        "style_keywords": _style_keywords(text),
+    }
+
+
+def _target_block_count(text: str, requested_blocks: list[str], complexity: str) -> int:
+    """요청 문장과 선택된 요소를 보고 목표 블록 수를 정합니다."""
+
+    explicit = _explicit_count(text)
+    if explicit:
+        # 사용자가 KPI/차트/표 같은 콘텐츠 요소를 함께 적은 경우에는
+        # 보고서 헤더와 데이터 범위 요약이 앞에서 잘라먹지 않도록 여유를 둡니다.
+        content_floor = len(requested_blocks) + 2 if requested_blocks else explicit
+        return max(3, min(max(explicit, content_floor), 10))
+    if complexity == "simple":
+        return 5
+    if complexity == "detailed":
+        return 10
+    base_count = 2 + len(requested_blocks)
+    if "insight_bullets" not in requested_blocks and _contains(text, ["\ud574\uc11d", "\uc694\uc57d", "\ub9ac\ud3ec\ud2b8", "report"]):
+        base_count += 1
+    return max(5, min(base_count, 10))
+
+
+def _explicit_count(text: str) -> int:
+    """'5개', '5 blocks'처럼 직접 적은 개수를 읽습니다."""
+
+    import re
+
+    match = re.search(r"(\d{1,2})\s*(?:\uac1c|blocks?|components?|\ube14\ub85d|\uc694\uc18c)", text)
+    return int(match.group(1)) if match else 0
+
+
+def _style_keywords(text: str) -> list[str]:
+    """색상/분위기 관련 표현을 모읍니다."""
+
+    result: list[str] = []
+    for keyword in ["\ud30c\ub780\uc0c9", "\ucd08\ub85d", "\ud68c\uc0c9", "\ube68\uac04\uc0c9", "\uacbd\uace0", "\uac15\uc870", "\ucc28\ubd84\ud55c", "\uae54\ub054\ud55c", "\uc784\uc6d0\uc6a9", "compact", "comfortable"]:
+        if keyword.lower() in text and keyword not in result:
+            result.append(keyword)
+    return result
+
+
+def _contains(text: str, needles: list[str]) -> bool:
+    """문장 안에 지정한 키워드 중 하나라도 포함됐는지 확인합니다."""
+
+    haystack = str(text or "").lower()
+    return any(needle.lower() in haystack for needle in needles)
 
 
 def _select_input_text(data_text: str, file_data: Any) -> str:

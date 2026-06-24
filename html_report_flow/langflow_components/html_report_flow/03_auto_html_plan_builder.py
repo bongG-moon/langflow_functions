@@ -16,7 +16,7 @@ from lfx.io import DataInput, MessageTextInput, Output
 from lfx.schema.data import Data
 
 
-def build_auto_html_plan(payload_value: Any, data_profile_value: Any, component_catalog_value: Any, max_blocks: Any = "8") -> dict[str, Any]:
+def build_auto_html_plan(payload_value: Any, data_profile_value: Any, component_catalog_value: Any, max_blocks: Any = "auto") -> dict[str, Any]:
     """요청 데이터, 데이터 프로파일, 요소 카탈로그를 합쳐 기본 report_plan을 만듭니다."""
 
     payload = _payload(payload_value)
@@ -25,8 +25,11 @@ def build_auto_html_plan(payload_value: Any, data_profile_value: Any, component_
     request = _dict(payload.get("request"))
     groups = _dict(profile.get("column_groups"))
     shape = _dict(profile.get("shape"))
-    recommendations = _list(catalog.get("recommended_components"))
-    max_count = max(3, min(_positive_int(max_blocks, 8), 10))
+    recommendations = _prioritize_recommendations(
+        _list(catalog.get("recommended_components")),
+        _strings(_dict(request.get("visual_request")).get("requested_blocks")),
+    )
+    max_count, max_count_source = _resolve_max_blocks(max_blocks, request, profile)
 
     title = _title(request, profile)
     blocks: list[dict[str, Any]] = []
@@ -53,6 +56,13 @@ def build_auto_html_plan(payload_value: Any, data_profile_value: Any, component_
         "title": title,
         "subtitle": str(request.get("view_request") or request.get("question") or ""),
         "layout": _layout(request, profile),
+        "composition": {
+            "planning_role": "deterministic_fallback_draft",
+            "target_block_count": max_count,
+            "block_count_source": max_count_source,
+            "visual_request": _dict(request.get("visual_request")),
+            "llm_usage_note": "LLM should treat this as a safe draft only and prioritize raw question/view_request.",
+        },
         "blocks": blocks,
         "warnings": _list(profile.get("warnings")),
     }
@@ -102,6 +112,41 @@ def _apply_block_default(block: Any, block_defaults: dict[str, Any]) -> Any:
     style.update(_dict(block.get("style")))
     if style:
         result["style"] = style
+    return result
+
+
+def _prioritize_recommendations(recommendations: list[Any], preferred_ids: list[str]) -> list[dict[str, Any]]:
+    """00번 표시 요구에서 직접 요청한 요소를 추천 목록 앞쪽으로 옮깁니다."""
+
+    pinned_ids = {"report_header", "scope_summary"}
+    by_id: dict[str, dict[str, Any]] = {}
+    original_order: list[str] = []
+
+    for item in recommendations:
+        if not isinstance(item, dict):
+            continue
+        component_id = str(item.get("component_id") or "").strip()
+        if not component_id:
+            continue
+        if component_id not in by_id:
+            by_id[component_id] = item
+            original_order.append(component_id)
+
+    result: list[dict[str, Any]] = []
+
+    def append_component(component_id: str) -> None:
+        if not component_id or any(existing.get("component_id") == component_id for existing in result):
+            return
+        result.append(deepcopy(by_id.get(component_id) or {"component_id": component_id}))
+
+    for component_id in original_order:
+        if component_id in pinned_ids:
+            append_component(component_id)
+    for component_id in preferred_ids:
+        if component_id not in pinned_ids:
+            append_component(component_id)
+    for component_id in original_order:
+        append_component(component_id)
     return result
 
 
@@ -230,6 +275,36 @@ def _block_from_recommendation(block_id: str, recommendation: dict[str, Any], gr
     if block_id == "method_note":
         return {"block_id": block_id, "title": "생성 기준"}
     return {}
+
+
+def _resolve_max_blocks(max_blocks: Any, request: dict[str, Any], profile: dict[str, Any]) -> tuple[int, str]:
+    """수동 블록 수 대신 00번의 표시 요구를 우선 사용해 블록 수 제한을 정합니다."""
+
+    raw = str(max_blocks or "auto").strip().lower()
+    if raw not in {"", "auto", "\uc790\ub3d9"}:
+        return max(3, min(_positive_int(max_blocks, 8), 10)), "manual"
+
+    visual_request = _dict(request.get("visual_request"))
+    try:
+        target = int(visual_request.get("target_block_count") or 0)
+    except Exception:
+        target = 0
+    if target:
+        return max(3, min(target, 10)), "visual_request"
+
+    text = " ".join(
+        str(item or "")
+        for item in (
+            request.get("question"),
+            request.get("view_request"),
+            profile.get("intent_text"),
+        )
+    ).lower()
+    if _contains(text, ["\uac04\ub2e8", "\uc9e7\uac8c", "simple", "brief"]):
+        return 5, "auto_simple"
+    if _contains(text, ["\uc0c1\uc138", "\ud48d\ubd80", "detailed", "full"]):
+        return 10, "auto_detailed"
+    return 8, "auto_default"
 
 
 def _title(request: dict[str, Any], profile: dict[str, Any]) -> str:
@@ -451,7 +526,7 @@ class AutoHtmlPlanBuilder(Component):
         DataInput(name="payload", display_name="요청 데이터", required=True),
         DataInput(name="data_profile", display_name="데이터 분석 결과", required=True),
         DataInput(name="html_component_catalog", display_name="요소 추천 결과", required=True),
-        MessageTextInput(name="max_blocks", display_name="최대 블록 수", value="8", advanced=True),
+        MessageTextInput(name="max_blocks", display_name="블록 수 제한", value="auto", advanced=True),
     ]
     outputs = [Output(name="payload_out", display_name="기본 계획", method="build_payload")]
 
@@ -462,7 +537,7 @@ class AutoHtmlPlanBuilder(Component):
             getattr(self, "payload", None),
             getattr(self, "data_profile", None),
             getattr(self, "html_component_catalog", None),
-            getattr(self, "max_blocks", "8"),
+            getattr(self, "max_blocks", "auto"),
         )
         plan = result.get("report_plan", {})
         self.status = {"blocks": [block.get("block_id") for block in plan.get("blocks", [])], "layout": plan.get("layout")}
