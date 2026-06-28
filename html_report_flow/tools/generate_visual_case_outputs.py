@@ -19,6 +19,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT_DIR = ROOT / "langflow_components" / "html_report_flow"
+SAMPLE_DATA_DIR = ROOT / "samples" / "00_data_inputs"
+SAMPLE_CATALOG_DIR = ROOT / "samples" / "02_component_catalogs"
 OUTPUT_DIR = ROOT / "test_outputs" / "visual_case_outputs"
 
 MARKERS = {
@@ -129,6 +131,14 @@ def deterministic_cases() -> list[dict[str, Any]]:
 
     return [
         {
+            "case_id": "det_multi_dataset_join",
+            "mode": "deterministic",
+            "json": "sample_multi_wip_output_quality.json",
+            "catalog": "catalog_operations_compact.json",
+            "question": "Combine WIP, output, and quality data by date, line, and process.",
+            "view_request": "KPI cards, DATE trend line for OUTPUT_QTY, ALERT_LEVEL donut, process comparison, risk detail table",
+        },
+        {
             "case_id": "det_wip_operations",
             "mode": "deterministic",
             "csv": "sample_wip.csv",
@@ -199,6 +209,39 @@ def llm_like_cases() -> list[dict[str, Any]]:
     """실제 LLM 응답처럼 만든 JSON 계획을 03b 검증 노드에 통과시키는 샘플 케이스 목록입니다."""
 
     return [
+        {
+            "case_id": "llm_multi_dataset_operations",
+            "mode": "llm_like",
+            "json": "sample_multi_wip_output_quality.json",
+            "catalog": "catalog_operations_compact.json",
+            "question": "Create a joined operations report from WIP, production, and quality datasets.",
+            "view_request": "Top row KPI cards, output trend line, WIP alert donut, process risk table",
+            "llm_plan": {
+                "title": "Joined Operations Risk Report",
+                "audience": "operator",
+                "report_goal": "monitor",
+                "layout": "dashboard",
+                "dataset_strategy": {
+                    "mode": "join",
+                    "active_data_view_id": "joined_auto",
+                    "join_keys": ["DATE", "LINE", "PROCESS"],
+                },
+                "visual_style": {"density": "compact", "font_scale": "normal", "accent_color": "#4f46e5", "secondary_color": "#0f766e", "max_width": "wide"},
+                "narrative": {
+                    "executive_summary": "WIP, output, and quality indicators are reviewed together by common operation keys.",
+                    "key_findings": ["High WIP rows should be compared against output and backlog.", "Low yield periods need quality follow-up."],
+                    "recommendations": ["Prioritize HIGH and WARN alert rows with high backlog first."],
+                },
+                "blocks": [
+                    {"block_id": "report_header", "title": "Joined Operations Risk Report", "width": "full", "emphasis": "high"},
+                    {"block_id": "kpi_card_grid", "title": "Core Joined Metrics", "width": "full", "emphasis": "high", "data_view_id": "joined_auto", "metrics": [{"label": "Total WIP", "column": "WIP_QTY", "aggregation": "sum"}, {"label": "Total Output", "column": "OUTPUT_QTY", "aggregation": "sum"}, {"label": "Avg Yield", "column": "YIELD_RATE", "aggregation": "avg"}, {"label": "Total Defects", "column": "DEFECT_QTY", "aggregation": "sum"}, {"label": "Backlog", "column": "BACKLOG_QTY", "aggregation": "sum"}]},
+                    {"block_id": "trend_line_chart", "title": "Daily Output Trend", "width": "two_third", "emphasis": "high", "data_view_id": "joined_auto", "x": "DATE", "y": "OUTPUT_QTY", "chart_policy": {"chart_type": "line", "show_values": True}},
+                    {"block_id": "donut_chart", "title": "WIP Alert Mix", "width": "third", "emphasis": "medium", "data_view_id": "wip_status", "x": "ALERT_LEVEL", "y": "WIP_QTY", "chart_policy": {"chart_type": "donut", "show_percent": True, "show_legend": True}},
+                    {"block_id": "grouped_bar_chart", "title": "Process WIP, Output, Defect", "width": "full", "emphasis": "medium", "data_view_id": "joined_auto", "x": "PROCESS", "metrics": [{"label": "WIP", "column": "WIP_QTY", "aggregation": "sum"}, {"label": "Output", "column": "OUTPUT_QTY", "aggregation": "sum"}, {"label": "Defect", "column": "DEFECT_QTY", "aggregation": "sum"}]},
+                    {"block_id": "detail_data_table", "title": "High Risk Joined Rows", "width": "full", "density": "compact", "data_view_id": "joined_auto", "filter_logic": "or", "filter_rules": [{"column": "ALERT_LEVEL", "operator": "in", "value": ["HIGH", "WARN"]}, {"column": "YIELD_RATE", "operator": "lte", "value": 95}], "highlight_rules": [{"column": "ALERT_LEVEL", "operator": "eq", "value": "HIGH", "tone": "danger"}, {"column": "ALERT_LEVEL", "operator": "eq", "value": "WARN", "tone": "warning"}], "table_policy": {"columns": ["DATE", "LINE", "PROCESS", "STATUS", "ALERT_LEVEL", "WIP_QTY", "OUTPUT_QTY", "BACKLOG_QTY", "DEFECT_QTY", "YIELD_RATE"], "limit": 30, "show_row_numbers": True}, "sort": {"by": "BACKLOG_QTY", "direction": "desc"}},
+                ],
+            },
+        },
         {
             "case_id": "llm_exec_sales_mix",
             "mode": "llm_like",
@@ -343,13 +386,16 @@ def run_llm_like_case(case: dict[str, Any], modules: dict[str, Any]) -> dict[str
 
 
 def build_base_payload(case: dict[str, Any], modules: dict[str, Any]) -> dict[str, Any]:
-    """샘플 CSV 파일을 읽어 00번 노드의 표준 payload를 만듭니다."""
+    """샘플 CSV 또는 JSON 파일을 읽어 00번 노드의 표준 payload를 만듭니다."""
 
-    csv_text = (ROOT / "sample_payloads" / case["csv"]).read_text(encoding="utf-8")
+    source_name = case.get("csv") or case.get("json")
+    if not source_name:
+        raise ValueError(f"Missing sample source for case: {case.get('case_id')}")
+    data_text = (SAMPLE_DATA_DIR / source_name).read_text(encoding="utf-8")
     return modules["m00"].build_demo_report_request(
         case["question"],
         case.get("view_request", ""),
-        data_text=csv_text,
+        data_text=data_text,
     )
 
 
@@ -374,9 +420,10 @@ def write_result(
     metadata = {
         "case_id": case["case_id"],
         "mode": case["mode"],
-        "csv": case["csv"],
+        "data_source": case.get("csv") or case.get("json"),
         "catalog": case.get("catalog", ""),
         "question": case["question"],
+        "dataset_strategy": plan.get("dataset_strategy", {}),
         "row_count": profile.get("shape", {}).get("row_count"),
         "plan_source": plan.get("plan_source", "deterministic"),
         "layout": plan.get("layout"),
@@ -404,16 +451,16 @@ def build_summary(results: list[dict[str, Any]]) -> str:
         "",
         "## Case Matrix",
         "",
-        "| Case | Mode | CSV | Layout | Visual markers | Block sequence | HTML |",
+        "| Case | Mode | Data | Layout | Visual markers | Block sequence | HTML |",
         "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for result in results:
         rel_html = Path(result["html_file"]).relative_to(OUTPUT_DIR)
         lines.append(
-            "| {case_id} | {mode} | {csv} | {layout} | {markers} | {blocks} | {html} |".format(
+            "| {case_id} | {mode} | {data_source} | {layout} | {markers} | {blocks} | {html} |".format(
                 case_id=result["case_id"],
                 mode=result["mode"],
-                csv=result["csv"],
+                data_source=result.get("data_source") or "",
                 layout=result.get("layout") or "",
                 markers=", ".join(result["present_markers"]),
                 blocks=" -> ".join(result["blocks"][:8]),
@@ -456,11 +503,11 @@ def build_summary(results: list[dict[str, Any]]) -> str:
 
 
 def read_catalog(name: str | None) -> str:
-    """sample_catalogs 폴더에서 카탈로그 JSON 문자열을 읽습니다."""
+    """samples/02_component_catalogs 폴더에서 카탈로그 JSON 문자열을 읽습니다."""
 
     if not name:
         return ""
-    return (ROOT / "sample_catalogs" / name).read_text(encoding="utf-8")
+    return (SAMPLE_CATALOG_DIR / name).read_text(encoding="utf-8")
 
 
 def load_module(name: str, path: Path):

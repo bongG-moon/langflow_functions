@@ -25,6 +25,7 @@
 - LLM은 아래 템플릿에 따라 `report_plan` JSON만 반환해야 합니다.
 - `{...}` 형태의 변수명은 그대로 유지해야 합니다.
 - Prompt Template 변수명은 03a output label과 맞추기 위해 한글과 `_`를 사용합니다.
+- `디자인_지시` 변수에는 디자인뿐 아니라 컬럼/값 의미, 필터 조건, 사내 용어 설명 같은 추가 구현 지시사항도 들어갈 수 있습니다.
 - JSON key와 enum 값은 렌더러/검증 노드가 사용하므로 영어 형태를 유지합니다.
 
 ## Prompt Template 본문
@@ -45,6 +46,17 @@
 - view_request는 우선순위가 높은 화면 구성 요구사항입니다. KPI 카드, 도넛 차트, 막대 그래프, 추이 그래프, 표 등 특정 요소를 요청하면 데이터 조건이 허용하는 한 포함하세요.
 - automated_visual_hint는 신뢰도가 낮은 키워드 힌트입니다. 원문 question 또는 view_request와 충돌하면 무시하세요.
 - question과 view_request가 달라 보이면, 분석 질문은 유지하되 화면 표현 방식은 view_request를 우선 반영하세요.
+- 여러 dataset이 제공된 경우에는 리포트_컨텍스트_JSON의 multi_dataset_context를 먼저 확인하세요.
+- multi_dataset_context.available_data_views에 joined_auto가 있으면 공통 key로 결합된 분석용 view입니다. WIP, 생산량, 수율, 불량, backlog처럼 서로 다른 dataset의 지표를 함께 비교하는 블록은 joined_auto를 우선 사용하세요.
+- 특정 원본 dataset만 보는 블록이 필요하면 해당 block에 data_view_id를 지정하세요. 예: WIP 알림 비중만 볼 때는 wip_status, 생산 추이만 볼 때는 production_result처럼 사용할 수 있습니다.
+- data_view_id를 지정하지 않으면 active_data_view_id가 사용됩니다. 단일 CSV/rows 입력에서는 기존처럼 하나의 active view만 사용됩니다.
+- join_keys와 relationship_candidates를 보고 결합 근거가 약하면 narrative.caveats 또는 method_note에 주의사항을 적으세요.
+- 리포트_컨텍스트_JSON의 data_dictionary를 먼저 읽고 어떤 data_view의 어떤 컬럼이 metric/dimension/time/status/detail 역할인지 파악하세요.
+- 사용자가 특정 컬럼명이나 값(HIGH, WARN, 정상, 특정 공정명 등)을 언급하면 data_dictionary의 sample_values/top_values에 실제 값이 있는지 확인한 뒤 정확한 문자열로 사용하세요.
+- 사용자가 "A 또는 B인 행만", "95 이하", "특정 상태 제외"처럼 row 조건을 말하면 block.filter_rules와 filter_logic을 사용하세요. 단순 강조만 필요할 때만 highlight_rules를 사용하세요.
+- filter_rules의 operator는 eq, ne, gt, gte, lt, lte, contains, in, not_in 중 하나입니다. 여러 값을 포함하려면 operator=in과 value 배열을 사용하거나 filter_logic=or와 여러 eq rule을 사용하세요.
+- 요청 컬럼/값을 찾을 수 없으면 임의로 만들지 말고 가장 가까운 실제 컬럼을 사용하거나 request_interpretation.unmet_requests와 narrative.caveats에 이유를 적으세요.
+- request_interpretation에는 requested_columns, requested_value_conditions, data_binding_plan을 포함해 어떤 컬럼과 값을 어떤 블록에서 쓸지 짧게 남기세요.
 - 데이터가 허용하면 KPI 카드와 차트, 표, 설명 블록이 조합된 리포트를 선호하세요.
 - 최종 HTML은 Material admin dashboard 계열의 업무용 UI로 렌더링됩니다. 어두운 top app bar, 좌측 섹션 drawer, elevated white card, 명확한 table/chart hierarchy와 어울리도록 계획하세요.
 - 자연어 화면 요구사항을 명시적인 blocks, ordering, widths, chart_policy, table_policy, visual_style, annotations로 변환하세요.
@@ -62,6 +74,7 @@
 - narrative 필드는 간결한 발견사항, 주의사항, 권장 조치에 사용하세요. 데이터로 확인할 수 없는 주장은 만들지 마세요.
 - annotation은 최고값, 경고, 후속 확인 포인트처럼 짧은 callout에만 사용하세요.
 - table_policy와 chart_policy에는 사용할 컬럼, 정렬, limit, 행 번호, 값 표시 방식을 구체적으로 적으세요.
+- filter_rules에는 특정 값/임계값 조건을, highlight_rules에는 표시 강조 조건을 넣으세요. "행만 보여줘"는 filter_rules이고 "강조해줘"는 highlight_rules입니다.
 - 차트는 그림만 배치하지 말고 축 이름, tick, 범주/구간 라벨, 주요 수치 요약이 같이 읽히는 구성을 선택하세요.
 - 히스토그램/산점도/히트맵은 단독 해석이 가능하도록 column, metric, row 수, 범위, 상관계수, 최대 cell 같은 보조 정보를 고려하세요.
 - 데이터 값을 절대 지어내지 마세요. 제목과 라벨은 자연스럽게 바꿀 수 있지만, 데이터 binding은 실제 컬럼을 참조해야 합니다.
@@ -72,7 +85,7 @@
 리포트 컨텍스트입니다. 허용된 컴포넌트, 템플릿 기본값, 데이터 프로파일, 미리보기 row, deterministic fallback 계획이 포함됩니다:
 {리포트_컨텍스트_JSON}
 
-사용자 또는 운영자가 추가로 입력한 디자인 지시입니다:
+사용자 또는 운영자가 추가로 입력한 디자인/구현 지시입니다. 컬럼 의미, 값 의미, 필터 조건, 사내 용어 설명이 있으면 최우선 보조 근거로 사용하세요:
 {디자인_지시}
 
 요청을 템플릿 구성으로 변환할 때의 지침:
@@ -83,6 +96,7 @@
 - 최종 계획은 deterministic base plan을 그대로 복사한 것처럼 보이면 안 됩니다. request_interpretation에서 도출된 의도에 맞게 설계된 것처럼 보여야 합니다.
 - 원문 question/view_request가 단순 요약을 요청하면 리포트를 간결하게 유지하세요. 상세 진단이나 전체 flow 확인을 요청하면 보조 블록을 더 사용하세요.
 - 반환 전에 request_interpretation.requested_visuals와 layout_intent의 중요한 항목이 blocks에 반영됐는지 확인하세요. 반영하지 못한 항목은 request_interpretation.unmet_requests에 이유와 함께 적으세요.
+- 반환 전에 requested_columns, requested_value_conditions, data_binding_plan의 중요한 항목이 blocks의 x/y/series/metrics/table_policy/filter_rules/highlight_rules에 반영됐는지 확인하세요.
 
 렌더링 및 레이아웃 규칙:
 {렌더링_규칙}

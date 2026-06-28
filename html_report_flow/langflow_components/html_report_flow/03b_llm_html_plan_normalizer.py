@@ -27,7 +27,7 @@ AGGREGATIONS = {"sum", "avg", "average", "mean", "min", "max", "count", "nunique
 AUDIENCES = {"operator", "analyst", "executive", "engineer", "general"}
 REPORT_GOALS = {"monitor", "compare", "diagnose", "explain", "audit", "explore"}
 TONES = {"info", "positive", "warning", "danger", "neutral"}
-OPERATORS = {"eq", "ne", "gt", "gte", "lt", "lte", "contains"}
+OPERATORS = {"eq", "ne", "gt", "gte", "lt", "lte", "contains", "in", "not_in"}
 CHART_TYPES = {"bar", "horizontal_bar", "grouped_bar", "stacked_bar", "line", "donut", "histogram", "scatter", "heatmap"}
 ORIENTATIONS = {"horizontal", "vertical"}
 
@@ -43,6 +43,7 @@ def normalize_llm_html_plan(base_payload_value: Any, llm_response_value: Any, co
     catalog = _payload(component_catalog_value) or _dict(payload.get("html_component_catalog")) or _dict(llm_context.get("html_component_catalog"))
     allowed_blocks = _allowed_blocks(catalog)
     columns = _available_columns(payload)
+    data_view_ids = _available_data_view_ids(payload)
     warnings = _list(payload.get("warnings"))
 
     if not llm_json:
@@ -53,7 +54,7 @@ def normalize_llm_html_plan(base_payload_value: Any, llm_response_value: Any, co
         result["warnings"] = warnings + ["LLM plan fallback: JSON object not found."]
         return result
 
-    normalized_plan, plan_warnings = _normalize_plan(llm_json, base_plan, allowed_blocks, columns)
+    normalized_plan, plan_warnings = _normalize_plan(llm_json, base_plan, allowed_blocks, columns, data_view_ids)
     result = deepcopy(payload)
     result["report_plan"] = normalized_plan
     result["llm_report_plan"] = {
@@ -72,6 +73,7 @@ def _normalize_plan(
     base_plan: dict[str, Any],
     allowed_blocks: set[str],
     columns: set[str],
+    data_view_ids: set[str],
 ) -> tuple[dict[str, Any], list[str]]:
     """Validate the LLM output while preserving the user's interpreted intent."""
 
@@ -94,7 +96,7 @@ def _normalize_plan(
             warnings.append(f"Skipped unknown block_id: {block_id or '(blank)'}")
             continue
         base = _dict(base_by_id.get(block_id))
-        block = _normalize_block(raw, base, columns, warnings)
+        block = _normalize_block(raw, base, columns, data_view_ids, warnings)
         if block and not any(existing.get("block_id") == block_id for existing in blocks):
             blocks.append(block)
 
@@ -106,7 +108,7 @@ def _normalize_plan(
         return fallback, warnings
 
     if not any(block.get("block_id") == "report_header" for block in blocks) and "report_header" in allowed_blocks:
-        blocks.insert(0, _normalize_block({"block_id": "report_header", "width": "full", "emphasis": "high"}, _dict(base_by_id.get("report_header")), columns, warnings))
+        blocks.insert(0, _normalize_block({"block_id": "report_header", "width": "full", "emphasis": "high"}, _dict(base_by_id.get("report_header")), columns, data_view_ids, warnings))
 
     plan = deepcopy(base_plan)
     plan["plan_version"] = "html-report-plan-llm-v1"
@@ -119,6 +121,7 @@ def _normalize_plan(
     plan["layout"] = _choice(llm_plan.get("layout"), LAYOUTS, base_plan.get("layout") or "dashboard")
     plan["visual_style"] = _normalize_visual_style(_dict(llm_plan.get("visual_style")), _dict(base_plan.get("visual_style")))
     plan["narrative"] = _normalize_narrative(_dict(llm_plan.get("narrative")), _dict(base_plan.get("narrative")))
+    plan["dataset_strategy"] = _normalize_dataset_strategy(_dict(llm_plan.get("dataset_strategy")), _dict(base_plan.get("dataset_strategy")), data_view_ids, warnings)
     if request_interpretation:
         plan["request_interpretation"] = request_interpretation
     reading_order = _normalize_string_list(llm_plan.get("reading_order"), 8, 40)
@@ -131,7 +134,7 @@ def _normalize_plan(
     return plan, warnings
 
 
-def _normalize_block(raw: dict[str, Any], base: dict[str, Any], columns: set[str], warnings: list[str]) -> dict[str, Any]:
+def _normalize_block(raw: dict[str, Any], base: dict[str, Any], columns: set[str], data_view_ids: set[str], warnings: list[str]) -> dict[str, Any]:
     """LLM이 만든 block 하나를 렌더러가 안전하게 쓸 수 있는 형태로 정리합니다.
 
     컬럼명은 실제 데이터 컬럼에 있는 경우만 허용하고,
@@ -146,6 +149,12 @@ def _normalize_block(raw: dict[str, Any], base: dict[str, Any], columns: set[str
     block["emphasis"] = _choice(raw.get("emphasis"), EMPHASIS, base.get("emphasis") or "medium")
     block["density"] = _choice(raw.get("density"), DENSITIES, base.get("density") or "comfortable")
     block["font_scale"] = _choice(raw.get("font_scale"), FONT_SCALES, base.get("font_scale") or "normal")
+    data_view_id = str(raw.get("data_view_id") or base.get("data_view_id") or "").strip()
+    if data_view_id:
+        if data_view_id in data_view_ids:
+            block["data_view_id"] = data_view_id
+        else:
+            warnings.append(f"Ignored invalid data_view_id for {block_id}: {data_view_id}")
     for key, limit in (
         ("section", 48),
         ("description", 180),
@@ -231,6 +240,14 @@ def _normalize_block(raw: dict[str, Any], base: dict[str, Any], columns: set[str
         if table_policy.get("show_row_numbers") is not None:
             block["show_row_numbers"] = table_policy["show_row_numbers"]
 
+    raw_filter_rules = raw.get("filter_rules")
+    if raw_filter_rules is None:
+        raw_filter_rules = _dict(raw.get("table_policy")).get("filter_rules")
+    filter_rules = _normalize_filter_rules(_list(raw_filter_rules), columns, warnings, block_id)
+    if filter_rules:
+        block["filter_rules"] = filter_rules[:10]
+        block["filter_logic"] = _choice(raw.get("filter_logic") or _dict(raw.get("table_policy")).get("filter_logic"), {"and", "or"}, "and")
+
     annotations = _normalize_annotations(_list(raw.get("annotations")))
     if annotations:
         block["annotations"] = annotations[:6]
@@ -271,10 +288,28 @@ def _normalize_request_interpretation(raw: dict[str, Any]) -> dict[str, Any]:
         value = str(raw.get(key) or "").strip()
         if value:
             result[key] = value[:limit]
-    for key in ("requested_visuals", "requested_blocks", "requested_order"):
+    for key in ("requested_visuals", "requested_blocks", "requested_order", "requested_columns", "data_binding_plan"):
         values = _normalize_string_list(raw.get(key), 12, 80)
         if values:
             result[key] = values
+    value_conditions = []
+    for item in _list(raw.get("requested_value_conditions")):
+        if isinstance(item, dict):
+            column = str(item.get("column") or "").strip()
+            operator = str(item.get("operator") or "").strip()
+            value = item.get("value")
+            purpose = str(item.get("purpose") or "").strip()
+            compact = {key: val for key, val in {"column": column, "operator": operator, "value": value, "purpose": purpose}.items() if val not in ("", None, [], {})}
+            if compact:
+                value_conditions.append(compact)
+        else:
+            text = str(item or "").strip()
+            if text:
+                value_conditions.append({"text": text[:160]})
+        if len(value_conditions) >= 12:
+            break
+    if value_conditions:
+        result["requested_value_conditions"] = value_conditions
     unmet = []
     for item in _list(raw.get("unmet_requests")):
         if isinstance(item, dict):
@@ -311,6 +346,26 @@ def _normalize_visual_style(raw: dict[str, Any], base: dict[str, Any]) -> dict[s
         result["accent_color"] = accent
     if secondary:
         result["secondary_color"] = secondary
+    return result
+
+
+def _normalize_dataset_strategy(raw: dict[str, Any], base: dict[str, Any], data_view_ids: set[str], warnings: list[str]) -> dict[str, Any]:
+    """LLM이 적은 dataset/data view 사용 계획을 안전하게 보존합니다."""
+
+    result = deepcopy(base)
+    active = str(raw.get("active_data_view_id") or raw.get("data_view_id") or base.get("active_data_view_id") or "").strip()
+    if active:
+        if active in data_view_ids:
+            result["active_data_view_id"] = active
+        else:
+            warnings.append(f"Ignored invalid dataset_strategy active_data_view_id: {active}")
+    mode = str(raw.get("mode") or raw.get("strategy") or base.get("mode") or "").strip().lower()
+    if mode in {"select", "join", "union", "separate_sections"}:
+        result["mode"] = mode
+    for key in ("source_dataset_ids", "join_keys"):
+        values = _normalize_string_list(raw.get(key), 12, 80)
+        if values:
+            result[key] = values
     return result
 
 
@@ -410,11 +465,48 @@ def _normalize_highlight_rules(values: list[Any], columns: set[str], warnings: l
             {
                 "column": column,
                 "operator": _choice(item.get("operator"), OPERATORS, "eq"),
-                "value": item.get("value"),
+                "value": _normalize_rule_value(item.get("value")),
                 "tone": _choice(item.get("tone"), TONES, "warning"),
             }
         )
     return result
+
+
+def _normalize_filter_rules(values: list[Any], columns: set[str], warnings: list[str], block_id: str) -> list[dict[str, Any]]:
+    """차트/표에 적용할 row 필터 규칙을 검증합니다."""
+
+    result = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        column = str(item.get("column") or "").strip()
+        if column not in columns:
+            warnings.append(f"Ignored invalid filter column for {block_id}: {column}")
+            continue
+        result.append(
+            {
+                "column": column,
+                "operator": _choice(item.get("operator"), OPERATORS, "eq"),
+                "value": _normalize_rule_value(item.get("value")),
+            }
+        )
+    return result
+
+
+def _normalize_rule_value(value: Any) -> Any:
+    """filter/highlight 비교값을 JSON으로 안전하게 보존합니다."""
+
+    if isinstance(value, list):
+        result = []
+        for item in value[:20]:
+            if isinstance(item, (str, int, float, bool)) or item is None:
+                result.append(item)
+            else:
+                result.append(str(item))
+        return result
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
 
 
 def _mark_plan(plan: dict[str, Any], source: str, warnings: list[str]) -> dict[str, Any]:
@@ -453,8 +545,34 @@ def _available_columns(payload: dict[str, Any]) -> set[str]:
     data = _dict(_dict(payload.get("api_response")).get("data"))
     result = {str(item.get("name")) for item in _list(profile.get("columns")) if isinstance(item, dict) and item.get("name")}
     result.update(str(item) for item in _list(data.get("columns")) if item)
+    for view in _list(payload.get("data_views")):
+        if isinstance(view, dict):
+            result.update(str(item) for item in _list(view.get("columns")) if item)
+            for row in _rows(view.get("rows"))[:20]:
+                result.update(str(key) for key in row.keys())
+    for view_profile in _list(profile.get("data_view_profiles")):
+        if isinstance(view_profile, dict):
+            for column in _list(view_profile.get("columns")):
+                if isinstance(column, dict) and column.get("name"):
+                    result.add(str(column.get("name")))
     for row in _rows(data.get("rows")):
         result.update(str(key) for key in row.keys())
+    return result
+
+
+def _available_data_view_ids(payload: dict[str, Any]) -> set[str]:
+    """payload 안에서 block.data_view_id로 지정 가능한 view id를 모읍니다."""
+
+    result = set()
+    request = _dict(payload.get("request"))
+    if request.get("active_data_view_id"):
+        result.add(str(request.get("active_data_view_id")))
+    data = _dict(_dict(payload.get("api_response")).get("data"))
+    if data.get("data_view_id"):
+        result.add(str(data.get("data_view_id")))
+    for view in _list(payload.get("data_views")) + _list(payload.get("available_data_views")):
+        if isinstance(view, dict) and view.get("data_view_id"):
+            result.add(str(view.get("data_view_id")))
     return result
 
 

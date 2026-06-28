@@ -29,15 +29,17 @@ def build_demo_report_request(
     `data_text`에 직접 붙여넣은 CSV/JSON이 있으면 그것을 우선 사용하고,
     비어 있으면 `file_data`에 연결된 File Read 결과에서 텍스트를 꺼냅니다.
     이후 CSV/JSON/JSONL 여부를 판단해 rows/columns 형태로 맞춰 둡니다.
+    여러 dataset이 들어온 경우에는 공통 key를 찾아 자동으로 결합 view를 만들고,
+    단일 CSV/rows 입력은 기존처럼 하나의 입력 데이터 view로 처리합니다.
     """
 
     text = _select_input_text(data_text, file_data)
     datasets = _parse_datasets(text)
-    selected = _select_dataset(datasets)
-    rows = _rows(selected.get("rows"))
-    columns = _strings(selected.get("columns")) or _columns_from_rows(rows)
-    row_count = _positive_int(selected.get("row_count"), len(rows))
     visual_request = _infer_visual_request(question, view_request)
+    data_views, relationship_candidates, active_view = _build_data_views(datasets, str(question or ""), str(view_request or ""))
+    rows = _rows(active_view.get("rows"))
+    columns = _strings(active_view.get("columns")) or _columns_from_rows(rows)
+    row_count = _positive_int(active_view.get("row_count"), len(rows))
 
     compact_datasets = []
     for item in datasets:
@@ -54,6 +56,20 @@ def build_demo_report_request(
             }
         )
 
+    compact_views = []
+    for view in data_views:
+        compact_views.append(
+            {
+                "data_view_id": str(view.get("data_view_id") or ""),
+                "label": str(view.get("label") or view.get("data_view_id") or ""),
+                "strategy": str(view.get("strategy") or "select"),
+                "source_dataset_ids": _strings(view.get("source_dataset_ids")),
+                "join_keys": _strings(view.get("join_keys")),
+                "columns": _strings(view.get("columns")),
+                "row_count": _positive_int(view.get("row_count"), len(_rows(view.get("rows")))),
+            }
+        )
+
     payload = {
         "payload_version": "html-report-demo-v1",
         "flow_type": "html_report_demo",
@@ -61,19 +77,28 @@ def build_demo_report_request(
         "request": {
             "question": str(question or ""),
             "view_request": str(view_request or ""),
-            "selected_dataset_id": str(selected.get("dataset_id") or ""),
+            "selected_dataset_id": str(active_view.get("source_dataset_ids", [""])[0] if active_view.get("source_dataset_ids") else ""),
+            "active_data_view_id": str(active_view.get("data_view_id") or ""),
             "visual_request": visual_request,
         },
         "available_datasets": compact_datasets,
+        "available_data_views": compact_views,
+        "data_views": data_views,
+        "relationship_candidates": relationship_candidates,
         "api_response": {
             "status": "ok",
             "response_type": "demo_data",
             "message": "Demo data loaded for HTML report generation.",
             "data": {
+                "data_view_id": str(active_view.get("data_view_id") or ""),
+                "label": str(active_view.get("label") or ""),
+                "strategy": str(active_view.get("strategy") or "select"),
+                "source_dataset_ids": _strings(active_view.get("source_dataset_ids")),
+                "join_keys": _strings(active_view.get("join_keys")),
                 "columns": columns,
                 "rows": rows,
                 "row_count": row_count,
-                "data_ref": _dict(selected.get("data_ref")),
+                "data_ref": _dict(active_view.get("data_ref")),
                 "data_is_preview": row_count > len(rows),
             },
         },
@@ -82,6 +107,10 @@ def build_demo_report_request(
     }
     if not rows:
         payload["warnings"].append("No rows were loaded from data_text or file_data.")
+    if len(datasets) > 1:
+        payload["warnings"].append(
+            f"Multiple datasets loaded; active data view is '{active_view.get('data_view_id')}' using strategy '{active_view.get('strategy')}'."
+        )
     return payload
 
 
@@ -404,6 +433,223 @@ def _dataset(
         "row_count": len(rows) if row_count is None else int(row_count),
         "data_ref": data_ref or {},
     }
+
+
+def _build_data_views(
+    datasets: list[dict[str, Any]],
+    question: str = "",
+    view_request: str = "",
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """여러 dataset을 렌더러가 사용할 수 있는 data view 목록으로 변환합니다.
+
+    - 단일 dataset이면 기존과 동일하게 해당 rows를 active view로 사용합니다.
+    - 여러 dataset이면 개별 view를 유지하면서, 공통 key가 있으면 자동 join view를 추가합니다.
+    - 같은 구조의 dataset 묶음이면 union view도 만들 수 있습니다.
+    """
+
+    normalized = [deepcopy(item) for item in datasets if isinstance(item, dict)]
+    if not normalized:
+        normalized = [_dataset("demo_dataset", "입력 데이터", [], [])]
+
+    views = [_view_from_dataset(item) for item in normalized]
+    candidates = _relationship_candidates(normalized)
+    intent_text = f"{question} {view_request}".lower()
+    union_view = _union_view(normalized)
+    join_view = _joined_view(normalized, candidates)
+
+    if union_view:
+        views.append(union_view)
+    if join_view:
+        views.append(join_view)
+
+    active = views[0]
+    if len(normalized) > 1:
+        if _contains_text(intent_text, ["union", "append", "concat", "세로", "합쳐", "누적"]) and union_view:
+            active = union_view
+        elif join_view:
+            active = join_view
+        elif union_view:
+            active = union_view
+    return views, candidates, active
+
+
+def _view_from_dataset(dataset: dict[str, Any]) -> dict[str, Any]:
+    """하나의 원본 dataset을 select 전략 data view로 감쌉니다."""
+
+    rows = _rows(dataset.get("rows"))
+    columns = _strings(dataset.get("columns")) or _columns_from_rows(rows)
+    dataset_id = str(dataset.get("dataset_id") or "demo_dataset")
+    return {
+        "data_view_id": dataset_id,
+        "label": str(dataset.get("label") or dataset_id),
+        "strategy": "select",
+        "source_dataset_ids": [dataset_id],
+        "join_keys": [],
+        "columns": columns,
+        "rows": rows,
+        "row_count": _positive_int(dataset.get("row_count"), len(rows)),
+        "data_ref": _dict(dataset.get("data_ref")),
+    }
+
+
+def _relationship_candidates(datasets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """dataset 쌍 사이의 공통 key 후보를 찾습니다."""
+
+    candidates = []
+    for left_index, left in enumerate(datasets):
+        for right in datasets[left_index + 1 :]:
+            keys = _common_join_keys(left, right)
+            candidates.append(
+                {
+                    "left_dataset": str(left.get("dataset_id") or ""),
+                    "right_dataset": str(right.get("dataset_id") or ""),
+                    "join_keys": keys,
+                    "confidence": "high" if keys else "none",
+                    "reason": "공통 key 후보가 있어 자동 결합할 수 있습니다." if keys else "공통 key 후보가 부족해 자동 결합하지 않습니다.",
+                }
+            )
+    return candidates
+
+
+def _common_join_keys(left: dict[str, Any], right: dict[str, Any]) -> list[str]:
+    """두 dataset 사이에서 join key로 쓰기 좋은 공통 컬럼을 고릅니다."""
+
+    left_rows = _rows(left.get("rows"))
+    right_rows = _rows(right.get("rows"))
+    common = [
+        column
+        for column in _strings(left.get("columns")) or _columns_from_rows(left_rows)
+        if column in set(_strings(right.get("columns")) or _columns_from_rows(right_rows))
+    ]
+    preferred = []
+    for column in common:
+        if _looks_like_join_key(column, left_rows, right_rows):
+            preferred.append(column)
+    if preferred:
+        return preferred[:4]
+    # 컬럼명이 같고 값이 숫자 metric처럼 보이지 않는 경우를 마지막 후보로 사용합니다.
+    fallback = [column for column in common if not _looks_numeric_metric(column, left_rows + right_rows)]
+    return fallback[:3]
+
+
+def _looks_like_join_key(column: str, left_rows: list[dict[str, Any]], right_rows: list[dict[str, Any]]) -> bool:
+    """컬럼명과 값 분포를 보고 join key 가능성을 판단합니다."""
+
+    text = str(column or "").lower()
+    if any(token in text for token in ["date", "dt", "day", "month", "week", "year", "날짜", "일자", "기준일"]):
+        return True
+    if any(token in text for token in ["process", "oper", "line", "product", "item", "category", "shift", "region", "warehouse", "공정", "라인", "제품", "구분"]):
+        return True
+    if any(token in text for token in ["id", "code", "key", "no", "seq", "코드", "번호"]):
+        return True
+    return not _looks_numeric_metric(column, left_rows + right_rows)
+
+
+def _looks_numeric_metric(column: str, rows: list[dict[str, Any]]) -> bool:
+    """값 대부분이 숫자이고 key 이름이 아니면 metric 컬럼으로 봅니다."""
+
+    values = [row.get(column) for row in rows if row.get(column) not in (None, "")]
+    if not values:
+        return False
+    if any(token in str(column).lower() for token in ["id", "code", "no", "seq", "date", "dt"]):
+        return False
+    numeric_count = sum(1 for value in values if isinstance(value, (int, float)) and not isinstance(value, bool))
+    return numeric_count / max(len(values), 1) >= 0.8
+
+
+def _joined_view(datasets: list[dict[str, Any]], candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """여러 dataset을 공통 key 기준으로 outer join한 view를 만듭니다."""
+
+    if len(datasets) < 2:
+        return None
+    common_keys = set(_strings(candidates[0].get("join_keys")) if candidates else [])
+    for candidate in candidates[1:]:
+        common_keys &= set(_strings(candidate.get("join_keys")))
+    join_keys = [column for column in (_strings(datasets[0].get("columns")) or _columns_from_rows(_rows(datasets[0].get("rows")))) if column in common_keys]
+    if not join_keys:
+        return None
+
+    joined_by_key: dict[tuple[str, ...], dict[str, Any]] = {}
+    output_columns = list(join_keys)
+    source_ids = [str(item.get("dataset_id") or f"dataset_{index}") for index, item in enumerate(datasets, start=1)]
+    non_key_counts: dict[str, int] = {}
+    for dataset in datasets:
+        for column in _strings(dataset.get("columns")) or _columns_from_rows(_rows(dataset.get("rows"))):
+            if column not in join_keys:
+                non_key_counts[column] = non_key_counts.get(column, 0) + 1
+
+    for dataset in datasets:
+        dataset_id = str(dataset.get("dataset_id") or "")
+        rows = _rows(dataset.get("rows"))
+        for row in rows:
+            key = tuple(str(row.get(column, "")) for column in join_keys)
+            target = joined_by_key.setdefault(key, {column: row.get(column, "") for column in join_keys})
+            for column, value in row.items():
+                if column in join_keys:
+                    continue
+                output_name = _merged_column_name(column, dataset_id, non_key_counts.get(column, 0) > 1, output_columns)
+                target[output_name] = value
+                if output_name not in output_columns:
+                    output_columns.append(output_name)
+
+    rows = list(joined_by_key.values())
+    label = " + ".join(str(item.get("label") or item.get("dataset_id") or "") for item in datasets[:3])
+    return {
+        "data_view_id": "joined_auto",
+        "label": f"자동 결합 데이터 ({label})",
+        "strategy": "join",
+        "source_dataset_ids": source_ids,
+        "join_keys": join_keys,
+        "columns": output_columns,
+        "rows": rows,
+        "row_count": len(rows),
+        "data_ref": {},
+    }
+
+
+def _merged_column_name(column: str, dataset_id: str, duplicated: bool, output_columns: list[str]) -> str:
+    """join 시 같은 이름의 metric이 충돌하면 dataset_id suffix를 붙입니다."""
+
+    if not duplicated:
+        return column
+    suffix = "".join(ch if ch.isalnum() else "_" for ch in str(dataset_id or "dataset")).strip("_") or "dataset"
+    return f"{column}__{suffix}"
+
+
+def _union_view(datasets: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """같은 구조의 여러 dataset을 세로로 붙인 union view를 만듭니다."""
+
+    if len(datasets) < 2:
+        return None
+    column_sets = [set(_strings(item.get("columns")) or _columns_from_rows(_rows(item.get("rows")))) for item in datasets]
+    if not column_sets or len({tuple(sorted(cols)) for cols in column_sets}) != 1:
+        return None
+    columns = list(_strings(datasets[0].get("columns")) or _columns_from_rows(_rows(datasets[0].get("rows"))))
+    output_columns = ["__dataset_id", "__dataset_label", *columns]
+    rows = []
+    for dataset in datasets:
+        dataset_id = str(dataset.get("dataset_id") or "")
+        label = str(dataset.get("label") or dataset_id)
+        for row in _rows(dataset.get("rows")):
+            rows.append({"__dataset_id": dataset_id, "__dataset_label": label, **{column: row.get(column, "") for column in columns}})
+    return {
+        "data_view_id": "union_auto",
+        "label": "자동 통합 데이터",
+        "strategy": "union",
+        "source_dataset_ids": [str(item.get("dataset_id") or "") for item in datasets],
+        "join_keys": [],
+        "columns": output_columns,
+        "rows": rows,
+        "row_count": len(rows),
+        "data_ref": {},
+    }
+
+
+def _contains_text(text: str, needles: list[str]) -> bool:
+    """문장에 특정 단어가 하나라도 포함되어 있는지 확인합니다."""
+
+    haystack = str(text or "").lower()
+    return any(needle.lower() in haystack for needle in needles)
 
 
 def _select_dataset(datasets: list[dict[str, Any]]) -> dict[str, Any]:

@@ -2,7 +2,7 @@
 
 이 문서는 `00 리포트 요청/데이터 불러오기`의 `보고 싶은 방식`에 어떤 요소를 요청할 수 있는지 정리한 참고 문서입니다.
 
-예시 문서 [DETAILED_VIEW_REQUEST_EXAMPLES.md](DETAILED_VIEW_REQUEST_EXAMPLES.md)를 작성하거나 수정할 때 아래 표현을 그대로 섞어 쓰면 됩니다. 사용자는 `block_id`를 몰라도 되지만, 구체적인 차트 이름, 배치, 기준 컬럼, 정렬 기준을 적을수록 LLM이 더 잘 반영합니다.
+샘플 입력 문서 [INPUT_EXAMPLES.md](../samples/INPUT_EXAMPLES.md)를 작성하거나 수정할 때 아래 표현을 그대로 섞어 쓰면 됩니다. 사용자는 `block_id`를 몰라도 되지만, 구체적인 차트 이름, 배치, 기준 컬럼, 정렬 기준을 적을수록 LLM이 더 잘 반영합니다.
 
 ## 1. 요청 작성 기본형
 

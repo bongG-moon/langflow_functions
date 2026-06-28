@@ -48,6 +48,9 @@ def build_data_profile(analysis_payload: Any, question: str = "") -> dict[str, A
     data_ref = _dict(data.get("data_ref")) or _dict(api.get("data_ref"))
     warnings = _unique([*_list(payload.get("warnings")), *_list(api.get("warnings"))])
     errors = _unique([*_list(payload.get("errors")), *_list(api.get("errors"))])
+    data_views = _list(payload.get("data_views"))
+    available_data_views = _list(payload.get("available_data_views"))
+    relationship_candidates = _list(payload.get("relationship_candidates"))
     # 너무 많은 row를 모두 훑으면 Langflow 실행이 무거워질 수 있어 앞 200개만 샘플로 분석합니다.
     column_profiles = [_profile_column(column, rows[:200]) for column in columns]
     groups = _groups(column_profiles)
@@ -60,6 +63,8 @@ def build_data_profile(analysis_payload: Any, question: str = "") -> dict[str, A
         "data_ref_present": bool(data_ref),
         "data_ref_loaded": bool(data.get("data_ref_loaded") or api.get("data_ref_loaded")),
         "data_ref_load_mode": data.get("data_ref_load_mode") or api.get("data_ref_load_mode") or "",
+        "active_data_view_id": data.get("data_view_id") or request.get("active_data_view_id") or "",
+        "active_data_view_strategy": data.get("strategy") or "",
     }
     signals = {
         "has_numeric_metrics": bool(groups["numeric_columns"]),
@@ -81,10 +86,47 @@ def build_data_profile(analysis_payload: Any, question: str = "") -> dict[str, A
         "column_groups": groups,
         "question_hints": hints,
         "report_signals": signals,
+        "available_datasets": _list(payload.get("available_datasets")),
+        "available_data_views": available_data_views,
+        "relationship_candidates": relationship_candidates,
+        "data_view_profiles": [_profile_data_view(view) for view in data_views[:8] if isinstance(view, dict)],
         "data_ref": data_ref,
         "warnings": warnings,
         "errors": errors,
         "preview_rows": deepcopy(rows[:10]),
+    }
+
+
+def _profile_data_view(view: dict[str, Any]) -> dict[str, Any]:
+    """여러 데이터셋/결합 view를 LLM이 이해할 수 있도록 작게 요약합니다."""
+
+    rows = _rows(view.get("rows"))
+    columns = _strings(view.get("columns")) or _columns_from_rows(rows)
+    profiles = [_profile_column(column, rows[:120]) for column in columns]
+    return {
+        "data_view_id": str(view.get("data_view_id") or ""),
+        "label": str(view.get("label") or view.get("data_view_id") or ""),
+        "strategy": str(view.get("strategy") or "select"),
+        "source_dataset_ids": _strings(view.get("source_dataset_ids")),
+        "join_keys": _strings(view.get("join_keys")),
+        "shape": {
+            "row_count": _int(view.get("row_count"), len(rows)),
+            "preview_row_count": len(rows),
+            "column_count": len(columns),
+        },
+        "columns": [
+            {
+                "name": item.get("name"),
+                "inferred_type": item.get("inferred_type"),
+                "semantic_hint": item.get("semantic_hint", ""),
+                "sample_values": _list(item.get("sample_values"))[:3],
+                "top_values": _list(item.get("top_values"))[:8],
+                "numeric_stats": _dict(item.get("numeric_stats")),
+            }
+            for item in profiles
+        ],
+        "column_groups": _groups(profiles),
+        "preview_rows": deepcopy(rows[:3]),
     }
 
 
@@ -103,6 +145,7 @@ def _profile_column(column: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "null_count": len(values) - len(non_empty),
         "unique_count": len(unique_values),
         "sample_values": _sample(non_empty),
+        "top_values": _top_values(non_empty),
         "is_metric_candidate": inferred == "numeric",
         "is_dimension_candidate": inferred in {"dimension", "id", "status"},
         "is_time_candidate": inferred == "time",
@@ -308,6 +351,25 @@ def _sample(values: list[Any], limit: int = 5) -> list[Any]:
     """중복을 제거한 샘플 값을 최대 limit개 반환합니다."""
 
     return _unique(values)[:limit]
+
+
+def _top_values(values: list[Any], limit: int = 12) -> list[dict[str, Any]]:
+    """범주/상태/코드 값의 빈도를 LLM이 이해하기 쉬운 형태로 요약합니다.
+
+    예를 들어 `ALERT_LEVEL` 컬럼에 HIGH/WARN/NORMAL 값이 있으면
+    LLM이 정확한 값 문자열을 사용해 filter_rules나 highlight_rules를 만들 수 있습니다.
+    """
+
+    counts: dict[str, dict[str, Any]] = {}
+    for value in values:
+        if value in (None, "", [], {}):
+            continue
+        signature = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+        if signature not in counts:
+            counts[signature] = {"value": deepcopy(value), "count": 0}
+        counts[signature]["count"] += 1
+    ranked = sorted(counts.values(), key=lambda item: (-int(item["count"]), str(item["value"])))
+    return ranked[:limit]
 
 
 def _unique(values: list[Any]) -> list[Any]:

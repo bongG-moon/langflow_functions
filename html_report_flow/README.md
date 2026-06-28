@@ -97,27 +97,19 @@ report_api/README.md
 
 Prompt Template에 들어가는 LLM prompt에는 차트 선택 기준과 레이아웃 균형 규칙이 포함되어 있습니다. 같은 row의 카드들은 `half+half`처럼 맞추고, 긴 표와 legend가 많은 차트는 full width로 배치하도록 유도합니다.
 
-## Sample Data
+## Samples
 
 ```text
-sample_payloads/sample_wip.csv
-sample_payloads/sample_multi_dataset.json
-sample_payloads/sample_sales_channel_mix.csv
-sample_payloads/sample_quality_diagnostics.csv
-sample_payloads/sample_inventory_flow.csv
-sample_payloads/sample_energy_usage.csv
-sample_payloads/sample_customer_funnel.csv
+samples/INPUT_EXAMPLES.md
 ```
 
-## Sample Catalogs
+`INPUT_EXAMPLES.md`에 `00.질문`, `00.보고 싶은 방식`, `00.데이터 직접 입력`, `02.요소 양식 JSON` 예시가 함께 정리되어 있습니다.
 
-`02 리포트 요소 카탈로그`의 `요소 양식 JSON`에 아래 파일 내용을 붙여넣으면 됩니다.
+실제 입력 파일은 아래 두 폴더에만 있습니다.
 
 ```text
-sample_catalogs/catalog_operations_compact.json
-sample_catalogs/catalog_executive_summary.json
-sample_catalogs/catalog_quality_diagnostics.json
-sample_catalogs/catalog_composition_dashboard.json
+samples/00_data_inputs
+samples/02_component_catalogs
 ```
 
 ## 상세 연결 문서

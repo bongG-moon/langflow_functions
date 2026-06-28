@@ -63,6 +63,7 @@ def build_auto_html_plan(payload_value: Any, data_profile_value: Any, component_
             "visual_request": _dict(request.get("visual_request")),
             "llm_usage_note": "LLM should treat this as a safe draft only and prioritize raw question/view_request.",
         },
+        "dataset_strategy": _dataset_strategy(payload, profile),
         "blocks": blocks,
         "warnings": _list(profile.get("warnings")),
     }
@@ -362,6 +363,9 @@ def _compact_report_payload(payload: dict[str, Any], profile: dict[str, Any]) ->
         "status": payload.get("status", "ok"),
         "request": _dict(payload.get("request")),
         "available_datasets": _list(payload.get("available_datasets")),
+        "available_data_views": _list(payload.get("available_data_views")),
+        "data_views": _list(payload.get("data_views")),
+        "relationship_candidates": _list(payload.get("relationship_candidates")),
         "api_response": {
             "status": api.get("status", payload.get("status", "ok")),
             "response_type": api.get("response_type", "demo_data"),
@@ -377,6 +381,8 @@ def _compact_report_payload(payload: dict[str, Any], profile: dict[str, Any]) ->
             "dimension_columns": _strings(groups.get("dimension_columns")),
             "time_columns": _strings(groups.get("time_columns")),
             "status_columns": _strings(groups.get("status_columns")),
+            "active_data_view_id": shape.get("active_data_view_id") or data.get("data_view_id") or "",
+            "active_data_view_strategy": shape.get("active_data_view_strategy") or data.get("strategy") or "",
         },
         "warnings": _list(payload.get("warnings")) or _list(profile.get("warnings")),
         "errors": _list(payload.get("errors")) or _list(profile.get("errors")),
@@ -412,8 +418,28 @@ def _compact_profile_for_llm(profile: dict[str, Any]) -> dict[str, Any]:
         ],
         "question_hints": _dict(profile.get("question_hints")),
         "report_signals": _dict(profile.get("report_signals")),
+        "available_datasets": _list(profile.get("available_datasets")),
+        "available_data_views": _list(profile.get("available_data_views")),
+        "relationship_candidates": _list(profile.get("relationship_candidates")),
+        "data_view_profiles": _list(profile.get("data_view_profiles")),
         "warnings": _list(profile.get("warnings")),
         "errors": _list(profile.get("errors")),
+    }
+
+
+def _dataset_strategy(payload: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
+    """현재 active data view가 어떤 방식으로 만들어졌는지 plan에 기록합니다."""
+
+    data = _dict(_dict(payload.get("api_response")).get("data"))
+    shape = _dict(profile.get("shape"))
+    active_view_id = str(data.get("data_view_id") or shape.get("active_data_view_id") or "")
+    strategy = str(data.get("strategy") or shape.get("active_data_view_strategy") or "select")
+    return {
+        "mode": strategy,
+        "active_data_view_id": active_view_id,
+        "source_dataset_ids": _strings(data.get("source_dataset_ids")),
+        "join_keys": _strings(data.get("join_keys")),
+        "relationship_candidates": _list(payload.get("relationship_candidates"))[:6],
     }
 
 

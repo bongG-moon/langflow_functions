@@ -39,7 +39,8 @@ def render_html_report(payload_value: Any) -> dict[str, Any]:
         # block_id에 따라 KPI/차트/표/문장 블록 중 하나를 렌더링합니다.
         if not isinstance(block, dict):
             continue
-        rendered = _render_block(block, payload, rows, columns)
+        block_rows, block_columns = _block_data(payload, block, rows, columns)
+        rendered = _render_block(block, payload, block_rows, block_columns)
         if rendered:
             anchor_id = f"report-section-{len(rendered_blocks) + 1}"
             rendered_blocks.append(_wrap_block(block, rendered, anchor_id))
@@ -74,6 +75,7 @@ def _compact_renderer_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "status": payload.get("status", "ok"),
         "request": _dict(payload.get("request")),
         "available_datasets": _list(payload.get("available_datasets")),
+        "available_data_views": _list(payload.get("available_data_views")),
         "api_response": _dict(payload.get("api_response")),
         "data_summary": _dict(payload.get("data_summary")),
         "report_plan": _dict(payload.get("report_plan")),
@@ -84,6 +86,20 @@ def _compact_renderer_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if payload.get(key):
             result[key] = deepcopy(payload[key])
     return result
+
+
+def _block_data(payload: dict[str, Any], block: dict[str, Any], default_rows: list[dict[str, Any]], default_columns: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
+    """block.data_view_id가 있으면 해당 data view의 rows/columns를 사용합니다."""
+
+    data_view_id = str(block.get("data_view_id") or "").strip()
+    if not data_view_id:
+        return _filter_rows(default_rows, block), default_columns
+    for view in _list(payload.get("data_views")):
+        if isinstance(view, dict) and str(view.get("data_view_id") or "") == data_view_id:
+            rows = _rows(view.get("rows"))
+            columns = _strings(view.get("columns")) or _columns_from_rows(rows)
+            return _filter_rows(rows, block), columns
+    return _filter_rows(default_rows, block), default_columns
 
 
 def _render_block(block: dict[str, Any], payload: dict[str, Any], rows: list[dict[str, Any]], columns: list[str]) -> str:
@@ -901,6 +917,21 @@ def _row_class(row: dict[str, Any], rules: list[Any]) -> str:
     return ""
 
 
+def _filter_rows(rows: list[dict[str, Any]], block: dict[str, Any]) -> list[dict[str, Any]]:
+    """block.filter_rules 조건에 맞는 row만 남깁니다."""
+
+    rules = [rule for rule in _list(block.get("filter_rules")) if isinstance(rule, dict)]
+    if not rules:
+        return rows
+    logic = _safe_token(block.get("filter_logic"), {"and", "or"}, "and")
+    result = []
+    for row in rows:
+        matches = [_rule_matches(row, rule) for rule in rules]
+        if (logic == "or" and any(matches)) or (logic == "and" and all(matches)):
+            result.append(row)
+    return result
+
+
 def _rule_matches(row: dict[str, Any], rule: dict[str, Any]) -> bool:
     """하나의 row가 강조 규칙과 일치하는지 비교합니다."""
 
@@ -920,6 +951,11 @@ def _rule_matches(row: dict[str, Any], rule: dict[str, Any]) -> bool:
         if operator == "lte":
             return actual_number <= expected_number
     actual_text = str(actual or "")
+    if operator in {"in", "not_in"}:
+        expected_values = expected if isinstance(expected, list) else [expected]
+        expected_texts = {str(item or "") for item in expected_values}
+        matched = actual_text in expected_texts
+        return not matched if operator == "not_in" else matched
     expected_text = str(expected or "")
     if operator == "contains":
         return expected_text.lower() in actual_text.lower()
