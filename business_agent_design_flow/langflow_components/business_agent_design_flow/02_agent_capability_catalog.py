@@ -8,7 +8,6 @@ from __future__ import annotations
 """
 
 import json
-import hashlib
 from copy import deepcopy
 from typing import Any
 
@@ -19,16 +18,12 @@ from lfx.schema.data import Data
 
 def build_agent_capability_catalog(
     payload_value: Any = None,
-    simple_catalog_text: str = "",
     custom_catalog_json: str = "",
 ) -> dict[str, Any]:
     """기본 카탈로그와 선택 입력 카탈로그를 합쳐 payload에 붙입니다."""
 
     payload = _payload(payload_value)
     catalog = _default_catalog()
-    simple = _parse_simple_catalog(simple_catalog_text)
-    if simple:
-        catalog = _merge_catalog(catalog, simple)
     custom = _parse_json(custom_catalog_json)
     if custom:
         catalog = _merge_catalog(catalog, custom)
@@ -36,7 +31,6 @@ def build_agent_capability_catalog(
     result = deepcopy(payload) if payload else {"flow_type": "business_agent_design", "warnings": []}
     result["agent_capability_catalog"] = catalog
     result["agent_capability_catalog_input"] = {
-        "간단 입력 추가 기능 수": len(simple.get("capabilities", [])) if simple else 0,
         "JSON 입력 추가 기능 수": len(custom.get("capabilities", [])) if custom else 0,
         "전체 기능 수": len(catalog.get("capabilities", [])),
     }
@@ -243,85 +237,6 @@ def _merge_catalog(base: dict[str, Any], custom: dict[str, Any]) -> dict[str, An
     return result
 
 
-def _parse_simple_catalog(text: str) -> dict[str, Any]:
-    """초보자용 줄 단위 입력을 기능 카탈로그 dict로 바꿉니다.
-
-    입력 형식:
-    기능명 | 설명 | 사용 상황 | 필요 입력 | 산출물 | 난이도 | 구현 힌트 | 참고 링크
-    """
-
-    raw = str(text or "").strip()
-    if not raw:
-        return {}
-
-    capabilities = []
-    for line in raw.splitlines():
-        value = line.strip()
-        if not value or value.startswith("#"):
-            continue
-        parts = [part.strip() for part in value.split("|")]
-        while len(parts) < 8:
-            parts.append("")
-
-        display_name = parts[0] or "사용자 추가 기능"
-        description = parts[1] or f"{display_name} 기능을 업무 AI 에이전트 설계 후보로 추가합니다."
-        when_to_use = parts[2] or "업무 설명에 이 기능과 관련된 데이터 조회, 판단, 생성, 공유 단계가 있을 때"
-        needed_inputs = _split_items(parts[3]) or ["사용자 요청", "필요 데이터"]
-        typical_outputs = _split_items(parts[4]) or ["처리 결과"]
-        difficulty = _difficulty(parts[5])
-        implementation_hint = parts[6] or "처음에는 읽기 전용 또는 초안 생성 용도로 연결하고, 실제 실행은 사람 검토 뒤 진행합니다."
-        source_reference = parts[7] or "user_input:simple_catalog"
-
-        capabilities.append(
-            {
-                "capability_id": _simple_capability_id(display_name, when_to_use),
-                "display_name": display_name,
-                "category": "user_added",
-                "beginner_use_case": description,
-                "when_to_use": when_to_use,
-                "needed_inputs": needed_inputs,
-                "typical_outputs": typical_outputs,
-                "difficulty": difficulty,
-                "implementation_hint": implementation_hint,
-                "source_reference": source_reference,
-            }
-        )
-
-    if not capabilities:
-        return {}
-    return {
-        "catalog_notes": ["사용자가 02 노드의 간단 입력칸에 적은 기능을 카탈로그에 추가했습니다."],
-        "capabilities": capabilities,
-    }
-
-
-def _simple_capability_id(display_name: str, when_to_use: str) -> str:
-    """간단 입력 기능명으로 안정적인 기능 ID를 만듭니다."""
-
-    digest = hashlib.sha1(f"{display_name}|{when_to_use}".encode("utf-8")).hexdigest()[:10]
-    return f"user_added_{digest}"
-
-
-def _split_items(text: str) -> list[str]:
-    """쉼표, 세미콜론, 슬래시로 구분된 값을 list로 바꿉니다."""
-
-    value = str(text or "").strip()
-    if not value:
-        return []
-    for sep in ("，", "、", ";", "/", "·"):
-        value = value.replace(sep, ",")
-    return [item.strip() for item in value.split(",") if item.strip()]
-
-
-def _difficulty(text: str) -> str:
-    """난이도 입력을 표준 값으로 맞춥니다."""
-
-    value = str(text or "").strip()
-    if value in {"초급", "중급", "고급", "초급-중급", "중급-고급"}:
-        return value
-    return "중급"
-
-
 def _parse_json(text: str) -> dict[str, Any]:
     """선택 입력 JSON을 파싱합니다."""
 
@@ -362,16 +277,10 @@ class AgentCapabilityCatalog(Component):
     inputs = [
         DataInput(name="payload", display_name="업무 구조화 결과", required=False),
         MessageTextInput(
-            name="simple_catalog_text",
-            display_name="추가 기능 간단 입력",
-            required=False,
-            info="한 줄에 기능 하나씩 입력합니다. 형식: 기능명 | 설명 | 사용 상황 | 필요 입력 | 산출물 | 난이도 | 구현 힌트 | 참고 링크",
-        ),
-        MessageTextInput(
             name="custom_catalog_json",
-            display_name="추가 기능 카탈로그 JSON (고급)",
+            display_name="추가 기능 카탈로그 JSON",
             required=False,
-            advanced=True,
+            info="직접 JSON을 붙여넣거나, 02-2 추가 기능 JSON 정리 노드의 출력을 연결합니다.",
         ),
     ]
     outputs = [Output(name="catalog_payload", display_name="기능 카탈로그 결과", method="build_payload")]
@@ -381,14 +290,13 @@ class AgentCapabilityCatalog(Component):
 
         result = build_agent_capability_catalog(
             payload_value=getattr(self, "payload", None),
-            simple_catalog_text=getattr(self, "simple_catalog_text", ""),
             custom_catalog_json=getattr(self, "custom_catalog_json", ""),
         )
         catalog = result.get("agent_capability_catalog", {})
         input_summary = result.get("agent_capability_catalog_input", {})
         self.status = {
             "기능 수": len(catalog.get("capabilities", [])),
-            "간단 입력 추가 기능 수": input_summary.get("간단 입력 추가 기능 수", 0),
+            "JSON 입력 추가 기능 수": input_summary.get("JSON 입력 추가 기능 수", 0),
             "설계 패턴 수": len(catalog.get("agent_design_patterns", [])),
         }
         return Data(data=result)

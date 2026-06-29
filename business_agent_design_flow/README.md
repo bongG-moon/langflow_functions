@@ -20,6 +20,7 @@ business_agent_design_flow/
 ├─ CONNECTION_GUIDE.md
 ├─ docs/
 │  ├─ AGENT_CAPABILITY_CATALOG.md
+│  ├─ FEATURE_CATALOG_PROMPT_TEMPLATE.md
 │  ├─ OUTPUT_SCHEMA.md
 │  └─ PROMPT_TEMPLATE.md
 ├─ samples/
@@ -29,6 +30,8 @@ business_agent_design_flow/
       ├─ 00_business_work_input_loader.py
       ├─ 01_work_process_structurer.py
       ├─ 02_agent_capability_catalog.py
+      ├─ 02_1_feature_catalog_json_prompt_builder.py
+      ├─ 02_2_feature_catalog_json_normalizer.py
       ├─ 03_agent_design_prompt_builder.py
       ├─ 04_agent_design_normalizer.py
       └─ 05_user_friendly_markdown_output.py
@@ -46,6 +49,16 @@ business_agent_design_flow/
   -> 04 AI 에이전트 설계 결과 정리
   -> 05 사용자용 설계서 출력
   -> Chat Output
+```
+
+추가 기능을 자연어로 넣고 싶을 때는 `02` 앞에 아래 흐름을 추가합니다.
+
+```text
+02-1 추가 기능 JSON 프롬프트 준비
+  -> 프롬프트 템플릿
+  -> LLM
+  -> 02-2 추가 기능 JSON 정리
+  -> 02 AI 에이전트 기능 카탈로그
 ```
 
 LLM 없이 빠르게 확인할 때는 아래처럼 연결합니다.
