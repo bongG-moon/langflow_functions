@@ -47,14 +47,26 @@ def structure_work_process(payload_value: Any) -> dict[str, Any]:
     data_systems = str(request.get("data_and_systems") or "").strip()
     constraints = str(request.get("constraints") or "").strip()
     preferred_output = str(request.get("preferred_output") or "").strip()
+    additional_instructions = str(request.get("additional_instructions") or "").strip()
+    extra_capabilities = str(request.get("extra_capabilities_text") or "").strip()
+    combined_context = " ".join(
+        [
+            description,
+            data_systems,
+            constraints,
+            preferred_output,
+            additional_instructions,
+            extra_capabilities,
+        ]
+    )
 
     steps = _extract_steps(description)
-    systems = _extract_systems(" ".join([description, data_systems]))
-    data_objects = _extract_data_objects(" ".join([description, data_systems]))
-    outputs = _extract_outputs(" ".join([description, preferred_output]))
-    decisions = _extract_decisions(description)
-    pain_points = _extract_pain_points(description)
-    human_checks = _extract_human_checks(" ".join([description, constraints]))
+    systems = _extract_systems(combined_context)
+    data_objects = _extract_data_objects(combined_context)
+    outputs = _extract_outputs(combined_context)
+    decisions = _extract_decisions(" ".join([description, constraints, additional_instructions]))
+    pain_points = _extract_pain_points(combined_context)
+    human_checks = _extract_human_checks(" ".join([description, constraints, additional_instructions]))
 
     profile = {
         "summary": _summary(description, goal),
@@ -65,7 +77,7 @@ def structure_work_process(payload_value: Any) -> dict[str, Any]:
         "decision_points": decisions,
         "pain_points": pain_points,
         "human_checkpoints": human_checks,
-        "automation_signals": _automation_signals(description, data_systems, constraints),
+        "automation_signals": _automation_signals(description, data_systems, constraints, additional_instructions),
         "missing_information_questions": _missing_questions(request, steps, data_objects, outputs),
     }
 
@@ -250,10 +262,15 @@ def _extract_human_checks(text: str) -> list[str]:
     return result[:8]
 
 
-def _automation_signals(description: str, data_systems: str, constraints: str) -> dict[str, Any]:
+def _automation_signals(
+    description: str,
+    data_systems: str,
+    constraints: str,
+    additional_instructions: str = "",
+) -> dict[str, Any]:
     """AI 에이전트화 가능성을 판단하는 간단한 신호를 만듭니다."""
 
-    combined = " ".join([description, data_systems, constraints]).lower()
+    combined = " ".join([description, data_systems, constraints, additional_instructions]).lower()
     return {
         "has_repeated_work": any(key in combined for key in ["매일", "매주", "반복", "정기", "daily", "weekly"]),
         "has_data_work": any(key in combined for key in ["데이터", "조회", "excel", "엑셀", "db", "api", "csv"]),

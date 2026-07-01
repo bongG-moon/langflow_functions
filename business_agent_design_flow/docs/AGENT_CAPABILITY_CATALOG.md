@@ -58,19 +58,9 @@
 
 ## 사용자가 추가로 넣을 수 있는 정보
 
-초보자는 자연어로 기능을 설명한 뒤, `02-1 추가 기능 JSON 프롬프트 준비`와 LLM을 통해 JSON으로 변환하는 방식이 가장 편합니다.
+초보자는 별도 JSON을 만들 필요가 없습니다. `00 업무 설명 입력`의 `업무 설명` 안에 추가 기능을 자연어로 같이 적으면 됩니다.
 
-### 추천 흐름
-
-```text
-02-1 추가 기능 JSON 프롬프트 준비
-  -> 프롬프트 템플릿
-  -> LLM
-  -> 02-2 추가 기능 JSON 정리
-  -> 02 AI 에이전트 기능 카탈로그
-```
-
-`02-1 추가 기능 JSON 프롬프트 준비`의 `추가 기능 자연어 설명`에는 아래처럼 자연스럽게 적습니다.
+예시:
 
 ```text
 우리 팀에는 사내 티켓 조회 API가 있습니다.
@@ -81,33 +71,9 @@
 자동 발송은 하지 말고 제목과 본문 초안까지만 만들어야 합니다.
 ```
 
-프롬프트 템플릿 본문은 아래 파일을 사용합니다.
+`02 AI 에이전트 기능 카탈로그` 노드는 이 문장을 읽고 `user_added_*` 형태의 기능 후보를 자동으로 카탈로그에 추가합니다.
 
-```text
-business_agent_design_flow/docs/FEATURE_CATALOG_PROMPT_TEMPLATE.md
-```
-
-`02-2 추가 기능 JSON 정리`는 LLM 응답을 검증해서 `02 AI 에이전트 기능 카탈로그`의 `추가 기능 카탈로그 JSON` 입력에 연결할 수 있는 JSON 문자열로 만듭니다.
-
-JSON에 익숙한 사용자는 `02 AI 에이전트 기능 카탈로그`의 `추가 기능 카탈로그 JSON`에 아래 형태로 직접 붙여넣어도 됩니다.
-
-```json
-{
-  "capabilities": [
-    {
-      "capability_id": "internal_ticket_api",
-      "display_name": "사내 티켓 API",
-      "category": "integration",
-      "beginner_use_case": "AI 에이전트가 티켓 상태를 조회하거나 초안을 생성합니다.",
-      "when_to_use": "업무가 티켓 시스템 조회/등록을 포함할 때",
-      "needed_inputs": ["ticket_id", "user_id"],
-      "typical_outputs": ["ticket_status", "draft_update"],
-      "difficulty": "중급",
-      "implementation_hint": "처음에는 조회 전용으로 연결하고 등록은 사람 승인 뒤 실행합니다."
-    }
-  ]
-}
-```
+이전 버전의 JSON 변환 노드인 `02-1`, `02-2`는 `legacy_components` 폴더에 참고용으로만 남겨두었습니다. 일반 사용자는 연결하지 않아도 됩니다.
 
 ## 공식 문서 참고
 

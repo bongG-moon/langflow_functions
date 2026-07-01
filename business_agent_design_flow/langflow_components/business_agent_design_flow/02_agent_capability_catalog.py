@@ -8,11 +8,12 @@ from __future__ import annotations
 """
 
 import json
+import re
 from copy import deepcopy
 from typing import Any
 
 from lfx.custom.custom_component.component import Component
-from lfx.io import DataInput, MessageTextInput, Output
+from lfx.io import DataInput, Output
 from lfx.schema.data import Data
 
 
@@ -25,13 +26,17 @@ def build_agent_capability_catalog(
     payload = _payload(payload_value)
     catalog = _default_catalog()
     custom = _parse_json(custom_catalog_json)
+    inferred = _infer_user_catalog(payload)
     if custom:
         catalog = _merge_catalog(catalog, custom)
+    if inferred:
+        catalog = _merge_catalog(catalog, inferred)
 
     result = deepcopy(payload) if payload else {"flow_type": "business_agent_design", "warnings": []}
     result["agent_capability_catalog"] = catalog
     result["agent_capability_catalog_input"] = {
         "JSON 입력 추가 기능 수": len(custom.get("capabilities", [])) if custom else 0,
+        "업무 설명 자동 추론 추가 기능 수": len(inferred.get("capabilities", [])) if inferred else 0,
         "전체 기능 수": len(catalog.get("capabilities", [])),
     }
     result.setdefault("warnings", [])
@@ -52,7 +57,7 @@ def _default_catalog() -> dict[str, Any]:
             {
                 "title": "프롬프트 템플릿 컴포넌트",
                 "description": "Langflow에서 프롬프트 본문에 변수를 넣어 LLM 입력을 표준화할 때 사용합니다.",
-                "used_for": "03 노드가 만든 업무_요청_JSON, 작성_규칙, 출력_스키마_JSON 등을 프롬프트 템플릿 변수로 연결합니다.",
+                "used_for": "현재 flow는 03 노드가 완성 프롬프트를 만들지만, 팀 표준상 프롬프트 템플릿을 써야 할 때 참고합니다.",
                 "source_link": "https://docs.langflow.org/components-prompts",
             },
             {
@@ -102,7 +107,7 @@ def _default_catalog() -> dict[str, Any]:
                 "needed_inputs": ["업무 설명", "업무 목적", "데이터/시스템 설명", "출력 스키마"],
                 "typical_outputs": ["구조화 JSON", "업무 단계", "AI 에이전트 설계 초안"],
                 "difficulty": "초급",
-                "implementation_hint": "03 프롬프트 변수 준비 노드의 출력을 Langflow 기본 프롬프트 템플릿 변수에 연결합니다.",
+                "implementation_hint": "03 프롬프트 준비 노드가 만든 완성 프롬프트를 LLM input에 바로 연결합니다.",
                 "source_reference": "https://docs.langflow.org/components-prompts",
             },
             {
@@ -237,6 +242,123 @@ def _merge_catalog(base: dict[str, Any], custom: dict[str, Any]) -> dict[str, An
     return result
 
 
+def _infer_user_catalog(payload: dict[str, Any]) -> dict[str, Any]:
+    """업무 설명 안에 적힌 추가 기능/기존 도구 설명을 간단한 카탈로그로 변환합니다."""
+
+    request = _dict(payload.get("business_request"))
+    raw_text = str(request.get("extra_capabilities_text") or "").strip()
+    if not raw_text:
+        return {}
+
+    capabilities = []
+    for idx, chunk in enumerate(_capability_chunks(raw_text), 1):
+        display_name = _capability_display_name(chunk, idx)
+        capability_id = _capability_id(display_name, idx)
+        capabilities.append(
+            {
+                "capability_id": capability_id,
+                "display_name": display_name,
+                "category": _capability_category(chunk),
+                "beginner_use_case": _short(chunk, 120),
+                "when_to_use": "업무 설명에서 사용자가 직접 언급한 사내 기능이나 기존 flow가 필요할 때",
+                "needed_inputs": _infer_needed_inputs(chunk),
+                "typical_outputs": _infer_typical_outputs(chunk),
+                "difficulty": "중급",
+                "implementation_hint": "처음에는 조회/초안/추천 중심으로 연결하고, 등록/수정/발송은 사람 검토 뒤 실행하도록 설계합니다.",
+                "source_reference": "user_input:업무_설명",
+            }
+        )
+
+    if not capabilities:
+        return {}
+    return {
+        "catalog_notes": ["사용자가 00 업무 설명에 자연어로 적은 추가 기능을 자동으로 카탈로그 후보에 반영했습니다."],
+        "capabilities": capabilities[:6],
+    }
+
+
+def _capability_chunks(text: str) -> list[str]:
+    """여러 기능 설명을 문단 단위로 나눕니다."""
+
+    paragraphs = [part.strip(" -\t") for part in re.split(r"\n\s*\n|(?:\n[-*]\s*)", text) if part.strip()]
+    if len(paragraphs) <= 1:
+        paragraphs = [part.strip(" -\t") for part in re.split(r"(?:^|\n)\d+[.)]\s*", text) if part.strip()]
+    return paragraphs or [text.strip()]
+
+
+def _capability_display_name(text: str, idx: int) -> str:
+    """추가 기능 이름을 사람이 읽기 좋은 형태로 만듭니다."""
+
+    first = re.split(r"[\n\r.]", text.strip())[0].strip()
+    patterns = [
+        r"(?P<name>[가-힣A-Za-z0-9 _/-]{2,40})(?:라는|이라고 하는)?\s*(?:기능|API|flow|플로우|도구|시스템)",
+        r"(?:기능|API|flow|플로우|도구|시스템)\s*(?:명|이름)?\s*[:：]\s*(?P<name>[가-힣A-Za-z0-9 _/-]{2,40})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, first, flags=re.I)
+        if match:
+            return _short(match.group("name").strip(), 40)
+    return _short(first, 34) or f"사용자 추가 기능 {idx}"
+
+
+def _capability_id(name: str, idx: int) -> str:
+    """카탈로그에서 사용할 안전한 capability_id를 만듭니다."""
+
+    ascii_part = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    if not ascii_part:
+        ascii_part = f"capability_{idx}"
+    return f"user_added_{ascii_part[:36]}"
+
+
+def _capability_category(text: str) -> str:
+    """기능 설명에서 대략적인 범주를 추정합니다."""
+
+    lower = text.lower()
+    if any(key in lower for key in ["메일", "email", "알림", "slack", "teams", "메신저"]):
+        return "communication"
+    if any(key in lower for key in ["api", "db", "시스템", "조회", "검색", "mcp", "도구"]):
+        return "integration"
+    if any(key in lower for key in ["flow", "플로우", "리포트", "report"]):
+        return "local_feature_flow"
+    return "custom_business_capability"
+
+
+def _infer_needed_inputs(text: str) -> list[str]:
+    """설명에서 자주 보이는 입력값 후보를 추정합니다."""
+
+    candidates = []
+    for keyword in ["ID", "기준일", "일자", "기간", "부서", "담당자", "고객", "프로젝트", "설비", "티켓", "데이터"]:
+        if keyword.lower() in text.lower():
+            candidates.append(keyword)
+    return candidates[:5] or ["사용자 요청", "업무 조건"]
+
+
+def _infer_typical_outputs(text: str) -> list[str]:
+    """설명에서 자주 보이는 출력값 후보를 추정합니다."""
+
+    outputs = []
+    rules = {
+        "조회 결과": ["조회", "검색", "가져"],
+        "요약": ["요약", "정리"],
+        "초안": ["초안", "메일", "문구"],
+        "추천": ["추천", "후보"],
+        "리포트": ["리포트", "보고서", "대시보드"],
+        "처리 이력": ["이력", "로그"],
+    }
+    lower = text.lower()
+    for output, keys in rules.items():
+        if any(key.lower() in lower for key in keys):
+            outputs.append(output)
+    return outputs[:5] or ["기능 실행 결과"]
+
+
+def _short(text: Any, limit: int) -> str:
+    """긴 설명을 카탈로그용 짧은 문장으로 자릅니다."""
+
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    return value[:limit]
+
+
 def _parse_json(text: str) -> dict[str, Any]:
     """선택 입력 JSON을 파싱합니다."""
 
@@ -268,6 +390,12 @@ def _payload(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _dict(value: Any) -> dict[str, Any]:
+    """dict면 복사본을, 아니면 빈 dict를 반환합니다."""
+
+    return deepcopy(value) if isinstance(value, dict) else {}
+
+
 class AgentCapabilityCatalog(Component):
     """Langflow 화면에 표시되는 02 커스텀 컴포넌트 클래스."""
 
@@ -276,12 +404,6 @@ class AgentCapabilityCatalog(Component):
     icon = "Library"
     inputs = [
         DataInput(name="payload", display_name="업무 구조화 결과", required=False),
-        MessageTextInput(
-            name="custom_catalog_json",
-            display_name="추가 기능 카탈로그 JSON",
-            required=False,
-            info="직접 JSON을 붙여넣거나, 02-2 추가 기능 JSON 정리 노드의 출력을 연결합니다.",
-        ),
     ]
     outputs = [Output(name="catalog_payload", display_name="기능 카탈로그 결과", method="build_payload")]
 
@@ -290,13 +412,12 @@ class AgentCapabilityCatalog(Component):
 
         result = build_agent_capability_catalog(
             payload_value=getattr(self, "payload", None),
-            custom_catalog_json=getattr(self, "custom_catalog_json", ""),
         )
         catalog = result.get("agent_capability_catalog", {})
         input_summary = result.get("agent_capability_catalog_input", {})
         self.status = {
             "기능 수": len(catalog.get("capabilities", [])),
-            "JSON 입력 추가 기능 수": input_summary.get("JSON 입력 추가 기능 수", 0),
+            "업무 설명 자동 추론 추가 기능 수": input_summary.get("업무 설명 자동 추론 추가 기능 수", 0),
             "설계 패턴 수": len(catalog.get("agent_design_patterns", [])),
         }
         return Data(data=result)

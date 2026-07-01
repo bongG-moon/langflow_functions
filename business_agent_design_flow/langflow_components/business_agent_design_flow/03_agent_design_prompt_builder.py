@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-"""03 AI 에이전트 설계 프롬프트 변수 준비 노드.
+"""03 AI 에이전트 설계 프롬프트 준비 노드.
 
-Langflow 기본 프롬프트 템플릿 노드에 연결할 변수를 만듭니다.
-LLM은 업무 설명을 바탕으로 프로세스 로직, AI 에이전트화 아이디어, 초보자용 구현 순서,
-사용자에게 보기 좋은 요약 구조를 JSON으로 반환해야 합니다.
+앞 노드들이 만든 업무 요청, 업무 구조화 결과, 기능 카탈로그, 출력 스키마를
+하나의 완성 프롬프트로 묶습니다. 사용자는 00 업무 설명만 입력하고,
+나머지 지침과 카탈로그는 이 노드 내부 프롬프트에 포함됩니다.
 """
 
 import json
@@ -12,32 +12,95 @@ from copy import deepcopy
 from typing import Any
 
 from lfx.custom.custom_component.component import Component
-from lfx.io import DataInput, MessageTextInput, Output
+from lfx.io import DataInput, Output
 from lfx.schema.message import Message
 
 
-def build_agent_design_prompt_variables(payload_value: Any, extra_instruction: str = "") -> dict[str, Any]:
-    """프롬프트 템플릿에 연결할 변수 dict를 만듭니다."""
+def build_agent_design_prompt(payload_value: Any) -> dict[str, Any]:
+    """LLM에 바로 전달할 업무 AI 에이전트 설계 프롬프트를 만듭니다."""
 
     payload = _payload(payload_value)
     request = _dict(payload.get("business_request"))
     profile = _dict(payload.get("process_profile"))
     catalog = _dict(payload.get("agent_capability_catalog"))
-    variables = {
-        "업무_요청_JSON": _json_text(request),
-        "업무_프로세스_컨텍스트_JSON": _json_text(profile),
-        "에이전트_기능_카탈로그_JSON": _json_text(_compact_catalog(catalog)),
-        "추가_지시사항": str(extra_instruction or "").strip() or "(none)",
-        "작성_규칙": _writing_rules(),
-        "출력_스키마_JSON": _json_text(_output_schema()),
+    context = {
+        "business_request": request,
+        "process_profile": profile,
+        "agent_capability_catalog": _compact_catalog(catalog),
+        "writing_rules": _writing_rules(),
+        "output_schema": _output_schema(),
     }
+    prompt = _compose_prompt(context)
     return {
         "prompt_type": "business_agent_design",
-        "prompt_variables": variables,
-        "prompt_variable_names": list(variables.keys()),
+        "prompt": prompt,
+        "prompt_context": context,
         "payload": payload,
-        "schema_hint": _output_schema(),
+        "schema_hint": context["output_schema"],
     }
+
+
+def build_agent_design_prompt_variables(payload_value: Any, extra_instruction: str = "") -> dict[str, Any]:
+    """이전 버전과의 호환을 위해 단일 컨텍스트 변수도 함께 반환합니다."""
+
+    result = build_agent_design_prompt(payload_value)
+    context = deepcopy(result["prompt_context"])
+    if extra_instruction:
+        context["business_request"]["additional_instructions"] = str(extra_instruction).strip()
+        result["prompt"] = _compose_prompt(context)
+    return {
+        "prompt_type": "business_agent_design",
+        "prompt": result["prompt"],
+        "prompt_variables": {
+            "설계_컨텍스트_JSON": _json_text(context),
+        },
+        "prompt_variable_names": ["설계_컨텍스트_JSON"],
+        "payload": result["payload"],
+        "schema_hint": context["output_schema"],
+    }
+
+
+def _compose_prompt(context: dict[str, Any]) -> str:
+    """프롬프트 본문을 한 번에 조립합니다."""
+
+    return "\n".join(
+        [
+            "당신은 초보 Langflow 개발자를 위한 업무 AI 에이전트 설계 코치입니다.",
+            "사용자가 자연어로 설명한 업무를 읽고, 업무 프로세스 로직을 보기 좋게 구조화한 뒤,",
+            "이 업무를 AI 에이전트로 만든다면 어떤 영역을 어떻게 개선할 수 있는지 제안하세요.",
+            "",
+            "중요한 전제:",
+            "- 사용자는 00 업무 설명 입력에 모든 내용을 한 번에 적습니다.",
+            "- 업무 목적, 데이터/시스템, 제약, 원하는 결과, 추가 기능이 본문 안에 섞여 있을 수 있습니다.",
+            "- 아래 컨텍스트에 있는 기본 기능 카탈로그와 사용자가 본문에 적은 추가 기능 후보를 함께 참고하세요.",
+            "- 입력에 없는 시스템, 데이터 컬럼, 자동화 가능성을 과장해서 만들지 마세요.",
+            "- 보안, 승인, 고객 발송, 시스템 등록/수정처럼 위험한 작업은 자동 실행보다 사람 검토 또는 승인 Gate를 우선 제안하세요.",
+            "",
+            "설계 컨텍스트 JSON:",
+            _json_text(
+                {
+                    "business_request": context.get("business_request", {}),
+                    "process_profile": context.get("process_profile", {}),
+                    "agent_capability_catalog": context.get("agent_capability_catalog", {}),
+                }
+            ),
+            "",
+            "작성 규칙:",
+            context.get("writing_rules", ""),
+            "",
+            "반환해야 하는 JSON 구조:",
+            _json_text(context.get("output_schema", {})),
+            "",
+            "출력 규칙:",
+            "- 오직 하나의 JSON object만 반환하세요.",
+            "- markdown 코드블록으로 감싸지 마세요.",
+            "- JSON 밖에 설명 문장을 쓰지 마세요.",
+            "- suggested_capabilities에는 설계 컨텍스트의 agent_capability_catalog.capabilities에 있는 capability_id만 사용하세요.",
+            "- 초보자가 바로 따라 만들 수 있게 recommended_flow_architecture.nodes와 beginner_build_plan을 구체적으로 작성하세요.",
+            "- user_friendly_view.card_sections, user_friendly_view.process_table, user_friendly_view.roadmap을 반드시 채우세요.",
+            "- reference_information은 한글 설명과 source_link를 함께 넣어 작성하세요.",
+        ]
+    )
 
 
 def _compact_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
@@ -69,38 +132,34 @@ def _compact_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
 
 
 def _writing_rules() -> str:
-    """LLM이 결과를 작성할 때 지켜야 하는 규칙입니다."""
+    """LLM이 설계 결과를 작성할 때 지켜야 하는 규칙입니다."""
 
     return "\n".join(
         [
             "역할:",
             "- 당신은 초보 Langflow 개발자를 돕는 업무 AI 에이전트 설계 코치입니다.",
-            "- 사용자가 자연어로 설명한 업무를 읽고, 업무 프로세스 로직과 AI 에이전트화 개선 아이디어를 구조화합니다.",
-            "- 실제 구현 가능한 Langflow flow 관점으로 설명하되, 초보자가 바로 이해할 수 있게 쉬운 표현을 사용합니다.",
+            "- 업무를 시작 조건, 입력 데이터, 처리 단계, 판단 기준, 산출물, 전달/승인 단계로 나누어 설명합니다.",
+            "- 실제 구현 가능한 Langflow flow 관점으로 설명하되, 초보자가 바로 이해할 수 있는 표현을 사용합니다.",
             "",
-            "반드시 지킬 규칙:",
-            "- 오직 하나의 엄격한 JSON object만 반환하세요. markdown 코드블록, HTML, 설명 문장을 JSON 밖에 쓰지 마세요.",
-            "- 입력에 없는 사실, 시스템명, 데이터 컬럼, 자동화 가능성을 과장하지 마세요.",
-            "- 자동 실행이 위험한 구간은 human_review_gate 또는 사람 검토 단계로 남기세요.",
-            "- 기존 기능flow를 제안할 때는 reusable_data_flow, html_report_flow처럼 실제 카탈로그에 있는 기능 ID만 사용하세요.",
-            "- 초보 개발자에게 필요한 입력 정보가 부족하면 missing_information에 질문 형태로 적으세요.",
-            "- 결과는 기계가 읽는 JSON이면서도 최종 Markdown 출력 노드가 보기 좋게 렌더링할 수 있는 구조여야 합니다.",
+            "사용자 요구 반영:",
+            "- 00 업무 설명의 원문 표현을 가장 중요한 요구사항으로 취급하세요.",
+            "- 사용자가 원하는 출력 형태, UI, 리포트, 승인 방식, 자동화 제외 범위를 구체적으로 적었다면 반드시 반영하세요.",
+            "- 사용자가 본문 안에 '기존 기능', '사내 API', '이미 만든 flow'를 언급했다면 카탈로그의 user_added_* 기능 후보를 우선 검토하세요.",
+            "- 정보가 부족하면 임의로 단정하지 말고 required_information.missing_information에 질문으로 남기세요.",
             "",
-            "분석 관점:",
-            "- 업무를 시작 조건, 입력 데이터, 처리 단계, 판단 기준, 산출물, 전달/승인 단계로 나눠보세요.",
+            "설계 기준:",
             "- 반복, 수동 복사, 조회, 비교, 조건 판단, 요약, 알림, 보고가 있으면 AI 에이전트화 후보입니다.",
-            "- 보안, 승인, 고객 발송, 시스템 업데이트는 완전 자동화보다 검토 후 실행 패턴을 우선 제안하세요.",
-            "- 업무 결과를 사람이 읽어야 하면 html_report_flow 또는 Markdown 출력이 적합합니다.",
-            "- 데이터 조회가 필요하면 reusable_data_flow를 후보로 제안하세요.",
-            "- 여러 외부 도구가 필요하면 에이전트와 도구 또는 MCP 도구를 후보로 제안하되, 초보자에게는 2단계 확장안으로 설명하세요.",
+            "- 데이터 조회가 핵심이면 reusable_data_flow를 추천하세요.",
+            "- 조회/분석 결과를 사람이 보기 좋게 보여줘야 하면 html_report_flow를 추천하세요.",
+            "- 여러 외부 도구 호출이 필요하면 agent_with_tools 또는 mcp_tools를 2차 확장안으로 제안하세요.",
+            "- 고객 발송, 승인, 시스템 업데이트, 민감 데이터 처리는 human_review_gate를 우선 제안하세요.",
             "",
-            "사용자 보기 좋은 출력 기준:",
+            "사용자용 출력 기준:",
             "- executive_summary는 3~5문장 이내로 명확하게 작성하세요.",
             "- process_logic.steps는 4~9개 정도로 정리하고, 각 단계에 actor/input/action/output/decision을 넣으세요.",
-            "- agent_opportunities는 기대 효과, 난이도, 추천 기능, 주의사항을 포함하세요.",
+            "- agent_opportunities는 개선 영역, 현재 불편함, AI 지원 방식, 기대 효과, 주의사항을 함께 적으세요.",
             "- beginner_build_plan은 초보자가 Langflow에서 노드를 연결하는 순서대로 작성하세요.",
-            "- user_friendly_view에는 card_sections, process_table, roadmap을 포함해 최종 출력 노드가 보기 좋은 Markdown으로 만들 수 있게 하세요.",
-            "- reference_information에는 참고한 Langflow 기능을 한글 설명과 source_link가 함께 있는 형태로 작성하세요.",
+            "- user_friendly_view는 최종 Markdown 출력이 보기 좋게 카드, 표, 로드맵 형태로 채우세요.",
         ]
     )
 
@@ -146,7 +205,7 @@ def _output_schema() -> dict[str, Any]:
             }
         ],
         "recommended_flow_architecture": {
-            "flow_summary": "권장 Langflow 구조 한 줄 요약",
+            "flow_summary": "권장 Langflow 구조 요약",
             "nodes": [
                 {
                     "order": 1,
@@ -167,7 +226,7 @@ def _output_schema() -> dict[str, Any]:
         },
         "required_information": {
             "must_have": ["구현 전에 반드시 필요한 정보"],
-            "nice_to_have": ["있으면 품질이 좋아지는 정보"],
+            "nice_to_have": ["있으면 설계가 좋아지는 정보"],
             "missing_information": ["사용자에게 추가로 물어볼 질문"],
         },
         "beginner_build_plan": [
@@ -193,7 +252,7 @@ def _output_schema() -> dict[str, Any]:
             {
                 "title": "참조 기능 또는 문서명",
                 "description": "초보자가 이해할 수 있는 한글 설명",
-                "used_for": "이 설계에서 참고한 이유",
+                "used_for": "이 설계에서 참고할 이유",
                 "source_link": "참조 링크",
             }
         ],
@@ -202,7 +261,7 @@ def _output_schema() -> dict[str, Any]:
 
 
 def _json_text(value: Any) -> str:
-    """프롬프트 변수로 넘길 값을 읽기 좋은 JSON 문자열로 변환합니다."""
+    """프롬프트에 넣을 값을 읽기 좋은 JSON 문자열로 변환합니다."""
 
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
 
@@ -241,63 +300,24 @@ class AgentDesignPromptBuilder(Component):
     """Langflow 화면에 표시되는 03 커스텀 컴포넌트 클래스."""
 
     display_name = "03 AI 에이전트 설계 프롬프트 준비"
-    description = "Langflow 기본 프롬프트 템플릿에 연결할 업무 AI 에이전트 설계 변수들을 준비합니다."
+    description = "업무 요청, 구조화 결과, 기능 카탈로그, 작성 규칙을 합쳐 LLM에 바로 넣을 프롬프트 하나를 만듭니다."
     icon = "Sparkles"
     inputs = [
         DataInput(name="payload", display_name="기능 카탈로그 결과", required=True),
-        MessageTextInput(
-            name="extra_instruction",
-            display_name="추가 설계 지시사항",
-            required=False,
-            info="특정 팀 기준, 보안 기준, 우선순위, 출력 톤을 추가로 적습니다.",
-        ),
     ]
     outputs = [
-        Output(name="business_request_json", display_name="업무_요청_JSON", method="build_business_request_json", group_outputs=True),
-        Output(name="process_context_json", display_name="업무_프로세스_컨텍스트_JSON", method="build_process_context_json", group_outputs=True),
-        Output(name="capability_catalog_json", display_name="에이전트_기능_카탈로그_JSON", method="build_capability_catalog_json", group_outputs=True),
-        Output(name="extra_instruction_text", display_name="추가_지시사항", method="build_extra_instruction_text", group_outputs=True),
-        Output(name="writing_rules", display_name="작성_규칙", method="build_writing_rules", group_outputs=True),
-        Output(name="output_schema_json", display_name="출력_스키마_JSON", method="build_output_schema_json", group_outputs=True),
+        Output(name="design_prompt", display_name="LLM 설계 프롬프트", method="build_design_prompt"),
     ]
 
-    def build_business_request_json(self) -> Message:
-        """프롬프트 템플릿의 {업무_요청_JSON} 변수에 연결할 값을 만듭니다."""
+    def build_design_prompt(self) -> Message:
+        """LLM input에 직접 연결할 프롬프트 Message를 만듭니다."""
 
-        return self._variable_message("업무_요청_JSON")
-
-    def build_process_context_json(self) -> Message:
-        """프롬프트 템플릿의 {업무_프로세스_컨텍스트_JSON} 변수에 연결할 값을 만듭니다."""
-
-        return self._variable_message("업무_프로세스_컨텍스트_JSON")
-
-    def build_capability_catalog_json(self) -> Message:
-        """프롬프트 템플릿의 {에이전트_기능_카탈로그_JSON} 변수에 연결할 값을 만듭니다."""
-
-        return self._variable_message("에이전트_기능_카탈로그_JSON")
-
-    def build_extra_instruction_text(self) -> Message:
-        """프롬프트 템플릿의 {추가_지시사항} 변수에 연결할 값을 만듭니다."""
-
-        return self._variable_message("추가_지시사항")
-
-    def build_writing_rules(self) -> Message:
-        """프롬프트 템플릿의 {작성_규칙} 변수에 연결할 값을 만듭니다."""
-
-        return self._variable_message("작성_규칙")
-
-    def build_output_schema_json(self) -> Message:
-        """프롬프트 템플릿의 {출력_스키마_JSON} 변수에 연결할 값을 만듭니다."""
-
-        return self._variable_message("출력_스키마_JSON")
-
-    def _variable_message(self, key: str) -> Message:
-        """공통 방식으로 prompt variable Message를 만듭니다."""
-
-        result = build_agent_design_prompt_variables(
-            payload_value=getattr(self, "payload", None),
-            extra_instruction=getattr(self, "extra_instruction", ""),
-        )
-        variables = _dict(result.get("prompt_variables"))
-        self.status = {"출력 변수": result.get("prompt_variable_names", [])}
-        return Message(text=str(variables.get(key) or ""))
+        result = build_agent_design_prompt(payload_value=getattr(self, "payload", None))
+        context = result.get("prompt_context", {})
+        catalog = _dict(context.get("agent_capability_catalog"))
+        self.status = {
+            "프롬프트 글자 수": len(result.get("prompt", "")),
+            "기능 수": len(_list(catalog.get("capabilities"))),
+            "출력 방식": "LLM에 바로 연결",
+        }
+        return Message(text=str(result.get("prompt") or ""))

@@ -159,7 +159,7 @@ def _fallback_design(payload: dict[str, Any]) -> dict[str, Any]:
             {"step_no": 1, "task": "업무 설명 입력 노드를 만들고 샘플 업무를 넣습니다.", "result": "업무 요청 payload 생성", "check_method": "01 노드에서 단계가 추출되는지 확인"},
             {"step_no": 2, "task": "업무 프로세스 구조화 노드를 연결합니다.", "result": "단계/입력/출력/판단 지점 초안 생성", "check_method": "process_steps 개수 확인"},
             {"step_no": 3, "task": "AI 에이전트 기능 카탈로그를 연결합니다.", "result": "사용 가능한 Langflow 기능 후보 추가", "check_method": "기능 목록이 보이는지 확인"},
-            {"step_no": 4, "task": "프롬프트 템플릿과 LLM을 연결해 설계를 보완합니다.", "result": "LLM 기반 AI 에이전트 설계 JSON 생성", "check_method": "04 노드가 생성 방식=llm으로 표시되는지 확인"},
+            {"step_no": 4, "task": "03 프롬프트 준비 노드의 LLM 설계 프롬프트를 LLM input에 연결해 설계를 보완합니다.", "result": "LLM 기반 AI 에이전트 설계 JSON 생성", "check_method": "04 노드가 생성 방식=llm으로 표시되는지 확인"},
             {"step_no": 5, "task": "Markdown 출력 노드로 사용자에게 보기 좋은 결과를 출력합니다.", "result": "플레이그라운드에서 읽을 수 있는 업무 AI 에이전트 설계서", "check_method": "프로세스 표와 구현 로드맵 확인"},
         ],
         "user_friendly_view": {
@@ -254,7 +254,7 @@ def _fallback_nodes(opportunities: list[dict[str, Any]]) -> list[dict[str, Any]]
         {"order": 1, "node_name": "Chat/Input 또는 00 업무 설명 입력", "role": "업무 설명 수집", "input": "자연어 업무 설명", "output": "업무 요청", "beginner_tip": "필수 입력은 업무 설명 하나로 시작하세요."},
         {"order": 2, "node_name": "업무 프로세스 구조화", "role": "단계와 판단 기준 추출", "input": "업무 요청", "output": "업무 구조화 결과", "beginner_tip": "먼저 LLM 없이 단계가 잘 나오는지 확인하세요."},
         {"order": 3, "node_name": "AI 에이전트 기능 카탈로그", "role": "쓸 수 있는 기능 후보 제공", "input": "업무 구조화 결과", "output": "기능 카탈로그 결과", "beginner_tip": "처음에는 기본 카탈로그를 그대로 쓰세요."},
-        {"order": 4, "node_name": "프롬프트 템플릿 + LLM", "role": "AI 에이전트 설계 보완", "input": "프롬프트 변수", "output": "LLM 설계 JSON", "beginner_tip": "LLM에게 JSON만 반환하도록 지시하세요."},
+        {"order": 4, "node_name": "03 프롬프트 준비 + LLM", "role": "AI 에이전트 설계 보완", "input": "LLM 설계 프롬프트", "output": "LLM 설계 JSON", "beginner_tip": "03 노드 출력을 LLM input에 바로 연결하세요."},
         {"order": 5, "node_name": "AI 에이전트 설계 결과 정리", "role": "LLM JSON 검증과 기본 설계 보완", "input": "기본 데이터 + LLM 설계 응답", "output": "최종 AI 에이전트 설계", "beginner_tip": "LLM이 실패해도 결과가 나오게 만드는 안전장치입니다."},
         {"order": 6, "node_name": "Markdown 출력", "role": "사용자용 결과 표시", "input": "최종 AI 에이전트 설계", "output": "읽기 좋은 설계서", "beginner_tip": "처음엔 API보다 플레이그라운드 출력으로 확인하세요."},
     ]
