@@ -1,0 +1,6 @@
+{
+  "output_type": "chat",
+  "input_type": "chat",
+  "input_value": "hello world!",
+  "session_id": "replace-with-session-id"
+}

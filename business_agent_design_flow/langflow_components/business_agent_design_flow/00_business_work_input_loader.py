@@ -104,6 +104,8 @@ NARRATIVE_INFERENCE_RULES = {
     ],
     "constraints": [
         "승인",
+        "승인 뒤",
+        "사람 승인",
         "검토",
         "보안",
         "민감",
@@ -116,6 +118,7 @@ NARRATIVE_INFERENCE_RULES = {
         "하면 안",
         "금지",
         "사람이 확인",
+        "조회 전용",
     ],
     "preferred_output": [
         "리포트",
@@ -252,6 +255,17 @@ def _infer_missing_sections(text: str, extracted: dict[str, str]) -> dict[str, s
     """
 
     result = dict(extracted)
+    had_explicit_sections = any(
+        result.get(key)
+        for key in (
+            "business_goal",
+            "data_and_systems",
+            "constraints",
+            "preferred_output",
+            "additional_instructions",
+            "extra_capabilities_text",
+        )
+    )
     sentences = _sentence_units(text)
     for key in (
         "business_goal",
@@ -266,7 +280,29 @@ def _infer_missing_sections(text: str, extracted: dict[str, str]) -> dict[str, s
         inferred = _matching_sentences(sentences, key)
         if inferred:
             result[key] = "\n".join(inferred[:4])
+    if not had_explicit_sections:
+        result["work_description"] = _workflow_description(text, result)
     return result
+
+
+def _workflow_description(text: str, extracted: dict[str, str]) -> str:
+    """서술형 입력에서 실제 업무 진행 단계에 가까운 문장만 남깁니다."""
+
+    excluded = set()
+    for key in (
+        "business_goal",
+        "data_and_systems",
+        "constraints",
+        "preferred_output",
+        "additional_instructions",
+        "extra_capabilities_text",
+    ):
+        excluded.update(_sentence_units(extracted.get(key, "")))
+
+    workflow_sentences = [sentence for sentence in _sentence_units(text) if sentence not in excluded]
+    if workflow_sentences:
+        return "\n".join(workflow_sentences).strip()
+    return str(text or "").strip()
 
 
 def _sentence_units(text: str) -> list[str]:

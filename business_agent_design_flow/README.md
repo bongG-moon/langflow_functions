@@ -11,6 +11,7 @@
 - 기존 기능flow인 `reusable_data_flow`, `html_report_flow`를 어디에 붙이면 좋은지 추천
 - 업무 설명 안에 적힌 사내 API, 기존 flow, 추가 기능 후보를 자동으로 카탈로그에 반영
 - Langflow에서 어떤 노드를 어떤 순서로 만들면 되는지 초보자용 구현 순서 출력
+- 사용자가 입력한 업무 흐름을 Mermaid 업무 Flow 다이어그램으로 출력
 - LLM 없이도 기본 설계 결과를 볼 수 있고, LLM을 연결하면 더 풍부한 설계 결과 생성
 
 ## 기본 사용 방식
@@ -39,6 +40,10 @@
   -> LLM
   -> 04 AI 에이전트 설계 결과 정리
   -> 05 사용자용 설계서 출력
+  -> Chat Output
+
+04 AI 에이전트 설계 결과 정리
+  -> 06 업무 Flow 다이어그램 출력
   -> Chat Output
 ```
 
@@ -73,7 +78,8 @@ business_agent_design_flow/
       ├─ 02_agent_capability_catalog.py
       ├─ 03_agent_design_prompt_builder.py
       ├─ 04_agent_design_normalizer.py
-      └─ 05_user_friendly_markdown_output.py
+      ├─ 05_user_friendly_markdown_output.py
+      └─ 06_business_flow_diagram_output.py
 ```
 
 `legacy_components`는 이전 방식의 추가 기능 JSON 변환 노드입니다. 현재 기본 사용 방식에서는 필요하지 않습니다.

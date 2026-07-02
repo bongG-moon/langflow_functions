@@ -1,0 +1,17 @@
+{
+  "output_type": "chat",
+  "input_type": "chat",
+  "input_value": "",
+  "session_id": "replace-with-session-id",
+  "tweaks": {
+    "TextInput-abc12": {
+      "input_value": "첫 번째 Text Input 값"
+    },
+    "TextInput-def34": {
+      "input_value": "두 번째 Text Input 값"
+    },
+    "CustomComponent-xyz99": {
+      "custom_field_name": "커스텀 컴포넌트 입력값"
+    }
+  }
+}

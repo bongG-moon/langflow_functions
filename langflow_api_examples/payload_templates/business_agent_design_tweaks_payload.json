@@ -1,0 +1,11 @@
+{
+  "output_type": "chat",
+  "input_type": "chat",
+  "input_value": "",
+  "session_id": "replace-with-session-id",
+  "tweaks": {
+    "BusinessWorkInputLoader-abc12": {
+      "work_description": "매일 아침 생산 데이터를 확인하고 위험 설비를 정리합니다. 메일은 초안까지만 만들고 팀장 승인 후 후속 조치를 등록합니다."
+    }
+  }
+}
