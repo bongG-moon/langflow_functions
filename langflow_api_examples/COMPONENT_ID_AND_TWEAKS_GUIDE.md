@@ -267,9 +267,9 @@ Flow 안의 특정 컴포넌트 입력칸을 직접 바꿔야 할 때만 `tweaks
 1. 먼저 Langflow Playground에서 Flow가 정상 동작하는지 확인합니다.
 2. API Access에서 Python 예시 코드를 복사합니다.
 3. Input Schema에서 실제 컴포넌트 ID와 필드명을 확인합니다.
-4. `payload_templates`의 예시 JSON에서 ID와 필드명만 실제 값으로 교체합니다.
+4. `run_flow_with_tweaks.py` 상단의 `TWEAKS` 변수에서 ID와 필드명만 실제 값으로 교체합니다.
 5. `run_flow_with_tweaks.py`로 호출합니다.
 
 ```powershell
-python run_flow_with_tweaks.py --tweaks-file payload_templates\multi_text_input_tweaks_payload.json
+python run_flow_with_tweaks.py
 ```

@@ -12,7 +12,6 @@ langflow_api_examples/
 ├─ .env.example
 ├─ run_flow_basic.py
 ├─ run_flow_with_tweaks.py
-├─ run_business_agent_design_flow.py
 └─ payload_templates/
    ├─ basic_chat_payload.json
    ├─ multi_text_input_tweaks_payload.json
@@ -42,6 +41,18 @@ Flow가 일반 `Chat Input` 하나를 받아 실행되는 구조라면 아래처
 
 ```powershell
 python run_flow_basic.py --input "hello world!"
+```
+
+기본 실행 결과는 Langflow 응답 JSON 전체가 아니라 Chat Output의 최종 메시지만 출력합니다.
+
+```text
+hello world!
+```
+
+응답 구조를 디버깅해야 해서 원본 JSON 전체를 보고 싶으면 `--raw-json` 옵션을 붙입니다.
+
+```powershell
+python run_flow_basic.py --input "hello world!" --raw-json
 ```
 
 핵심 payload는 아래 형태입니다.
@@ -87,32 +98,52 @@ Langflow에서 Text Input 또는 Custom Component 입력칸이 여러 개인 경
 - 커스텀 컴포넌트는 코드에서 정의한 입력 `name`을 사용합니다. 예를 들어 `00 업무 설명 입력`은 `work_description`입니다.
 - 컴포넌트 ID는 Flow의 API Access 패널에서 `Input Schema`를 열면 가장 안전하게 확인할 수 있습니다.
 
-예시는 아래처럼 실행합니다.
+`run_flow_with_tweaks.py`는 JSON 파일을 따로 읽지 않고, 파일 상단의 `TWEAKS` 변수를 직접 수정해서 사용합니다.
+
+```python
+TWEAKS = {
+    "TextInput-abc12": {
+        "input_value": "첫 번째 입력값"
+    },
+    "TextInput-def34": {
+        "input_value": "두 번째 입력값"
+    }
+}
+```
+
+수정 후 아래처럼 실행합니다.
 
 ```powershell
-python run_flow_with_tweaks.py --tweaks-file payload_templates\multi_text_input_tweaks_payload.json
+python run_flow_with_tweaks.py
+```
+
+이 스크립트도 기본 실행 결과는 최종 메시지만 출력합니다. 전체 Langflow 응답 JSON이 필요하면 `--raw-json`을 붙입니다.
+
+```powershell
+python run_flow_with_tweaks.py --raw-json
 ```
 
 ## 4. 업무 AI 에이전트 설계 Flow 호출 예시
 
-`business_agent_design_flow`처럼 사용자가 업무 설명 하나만 넣는 Flow는 보통 아래 둘 중 하나로 호출합니다.
+`business_agent_design_flow`처럼 커스텀 컴포넌트 입력값을 지정해야 하는 Flow도 `run_flow_with_tweaks.py`로 호출합니다.
+`run_flow_with_tweaks.py` 파일 상단의 `TWEAKS`를 아래처럼 실제 Flow에 맞게 바꿔주세요.
 
-### 방법 A. Chat Input을 앞에 둔 Flow
-
-Flow에 `Chat Input -> 00 업무 설명 입력` 구조가 있다면 `input_value`에 업무 설명을 넣습니다.
-
-```powershell
-python run_business_agent_design_flow.py --work-description "매일 아침 생산 데이터를 확인하고 위험 설비를 정리합니다."
+```python
+TWEAKS = {
+    "BusinessWorkInputLoader-abc12": {
+        "work_description": "매일 아침 생산 데이터를 확인하고 위험 설비를 정리합니다."
+    }
+}
 ```
 
-### 방법 B. 00 커스텀 컴포넌트 입력을 tweaks로 직접 설정
+```powershell
+python run_flow_with_tweaks.py
+```
 
-Flow가 Chat Input 없이 `00 업무 설명 입력` 컴포넌트 입력값을 직접 갖고 있다면 `--component-id`를 지정합니다.
+전체 응답 JSON이 필요하면 `--raw-json`을 붙입니다.
 
 ```powershell
-python run_business_agent_design_flow.py `
-  --component-id "BusinessWorkInputLoader-abc12" `
-  --work-description "매일 아침 생산 데이터를 확인하고 위험 설비를 정리합니다."
+python run_flow_with_tweaks.py --raw-json
 ```
 
 이 경우 payload 안에는 아래처럼 들어갑니다.
