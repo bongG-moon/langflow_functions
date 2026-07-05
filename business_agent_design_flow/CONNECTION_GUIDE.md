@@ -1,8 +1,6 @@
-# 업무 AI 에이전트 설계 Flow 연결 가이드
+# 업무 AI Agent 설계 Flow 연결 가이드
 
-이 flow는 사람이 본인의 업무 진행 방식을 자연어로 적으면, 업무 프로세스와 AI 에이전트화 아이디어를 정리해주는 체험용 Langflow flow입니다.
-
-핵심은 **사용자 입력을 00 업무 설명 한 칸으로 끝내는 것**입니다. 목적, 데이터, 제약, 원하는 결과, 추가 기능도 모두 같은 칸에 적습니다.
+이 가이드는 Langflow 캔버스에서 어떤 노드의 어떤 출력 포트를 어떤 입력 포트에 연결해야 하는지 설명합니다.
 
 ## 1. 컴포넌트 등록
 
@@ -12,110 +10,222 @@ Langflow 커스텀 컴포넌트 경로에 아래 폴더를 추가합니다.
 C:\Users\qkekt\Desktop\기능flow\business_agent_design_flow\langflow_components\business_agent_design_flow
 ```
 
-Langflow에서 컴포넌트가 보이지 않으면 서버 또는 화면을 새로고침합니다.
+화면에 컴포넌트가 보이지 않으면 Langflow를 새로고침하거나 서버를 재시작합니다.
 
-## 2. LLM 없이 빠른 확인 흐름
+각 컴포넌트 py 파일은 로컬 공통 모듈을 import하지 않는 standalone 방식입니다. 다만 모든 로직을 통째로 반복하지 않고, 해당 노드 실행에 필요한 최소 helper만 파일 내부에 포함합니다. 따라서 `_service_common.py` 같은 별도 로컬 모듈을 함께 넣거나 Python path를 추가로 수정하지 않아도 됩니다.
 
-LLM 노드를 아직 연결하지 않았거나 기본 구조만 보고 싶으면 아래처럼 연결합니다.
+## 2. 메인 Flow: LLM 없이 빠른 확인
 
-| 순서 | From | Output | To | Input |
-| --- | --- | --- | --- | --- |
-| 1 | 00 업무 설명 입력 | 업무 요청 | 01 업무 프로세스 구조화 | 업무 요청 |
-| 2 | 01 업무 프로세스 구조화 | 업무 구조화 결과 | 02 AI 에이전트 기능 카탈로그 | 업무 구조화 결과 |
-| 3 | 02 AI 에이전트 기능 카탈로그 | 기능 카탈로그 결과 | 04 AI 에이전트 설계 결과 정리 | 기능 카탈로그 결과 |
-| 4 | 04 AI 에이전트 설계 결과 정리 | AI 에이전트 설계 결과 | 05 사용자용 설계서 출력 | AI 에이전트 설계 결과 |
-| 5 | 05 사용자용 설계서 출력 | 사용자용 설계서 | Chat Output | input |
-
-이 방식에서는 `04 AI 에이전트 설계 결과 정리`의 `LLM 설계 응답` 입력을 비워둡니다.
-
-## 3. LLM 연결 흐름
-
-LLM이 업무를 더 풍부하게 해석하고 개선 아이디어를 만들게 하려면 아래처럼 연결합니다.
+LLM 노드 없이 fallback 설계와 HTML 렌더링만 확인할 때 사용합니다.
 
 | 순서 | From | Output | To | Input |
 | --- | --- | --- | --- | --- |
-| 1 | 00 업무 설명 입력 | 업무 요청 | 01 업무 프로세스 구조화 | 업무 요청 |
-| 2 | 01 업무 프로세스 구조화 | 업무 구조화 결과 | 02 AI 에이전트 기능 카탈로그 | 업무 구조화 결과 |
-| 3 | 02 AI 에이전트 기능 카탈로그 | 기능 카탈로그 결과 | 03 AI 에이전트 설계 프롬프트 준비 | 기능 카탈로그 결과 |
-| 4 | 03 AI 에이전트 설계 프롬프트 준비 | LLM 설계 프롬프트 | LLM | input |
-| 5 | 02 AI 에이전트 기능 카탈로그 | 기능 카탈로그 결과 | 04 AI 에이전트 설계 결과 정리 | 기능 카탈로그 결과 |
-| 6 | LLM | text 또는 message | 04 AI 에이전트 설계 결과 정리 | LLM 설계 응답 |
-| 7 | 04 AI 에이전트 설계 결과 정리 | AI 에이전트 설계 결과 | 05 사용자용 설계서 출력 | AI 에이전트 설계 결과 |
-| 8 | 05 사용자용 설계서 출력 | 사용자용 설계서 | Chat Output | input |
+| 1 | 00 업무 설명 입력 | 업무 요청 | 02 업무 구조화 결과 정리 | 업무 요청 |
+| 2 | 02 업무 구조화 결과 정리 | 업무 구조화 결과 | 03 MongoDB 기능/사례 검색 | 업무 구조화 결과 |
+| 3 | 03 MongoDB 기능/사례 검색 | 추천 컨텍스트 | 05 AI Agent 설계 결과 검증 | 추천 컨텍스트 |
+| 4 | 05 AI Agent 설계 결과 검증 | AI Agent 설계 결과 | 06 HTML 업무 Flow 렌더링 | AI Agent 설계 결과 |
+| 5 | 06 HTML 업무 Flow 렌더링 | HTML 생성 결과 | 07 사용자 요약 출력 | HTML 생성 결과 |
+| 6 | 07 사용자 요약 출력 | 요약 메시지 | Chat Output | input |
 
-이제 별도 `프롬프트 템플릿` 노드를 반드시 만들 필요가 없습니다. `03 AI 에이전트 설계 프롬프트 준비`가 작성 규칙, 기능 카탈로그, 출력 스키마를 모두 포함한 완성 프롬프트를 만들어줍니다.
-
-## 4. 업무 Flow 다이어그램 출력 흐름
-
-사용자가 입력한 업무 진행 방식을 그림처럼 보고 싶으면 `04` 뒤에 `06 업무 Flow 다이어그램 출력`을 추가로 연결합니다.
+HTML 원문을 확인하려면 5번 뒤에 아래 연결을 추가합니다.
 
 | 순서 | From | Output | To | Input |
 | --- | --- | --- | --- | --- |
-| 1 | 04 AI 에이전트 설계 결과 정리 | AI 에이전트 설계 결과 | 06 업무 Flow 다이어그램 출력 | AI 에이전트 설계 결과 |
-| 2 | 06 업무 Flow 다이어그램 출력 | 업무 Flow 다이어그램 | Chat Output | input |
+| 7 | 06 HTML 업무 Flow 렌더링 | HTML 생성 결과 | 08 HTML 원문 출력 | HTML 생성 결과 |
+| 8 | 08 HTML 원문 출력 | HTML 원문 | Chat Output | input |
 
-`06` 출력은 Mermaid Markdown입니다. Mermaid 렌더링을 지원하는 화면에서는 다이어그램으로 보이고, 지원하지 않는 화면에서는 복사 가능한 Mermaid 코드로 보입니다.
+## 3. 메인 Flow: Prompt Template + Agent 포함 권장 연결
 
-## 5. 00 업무 설명 입력에 넣는 값
+업무 구조화와 AI Agent 설계를 Langflow 기본 `Prompt Template`과 `Agent`로 더 풍부하게 만들도록 연결하는 방식입니다.
+`01 업무 구조화 프롬프트 변수 준비`는 완성된 프롬프트를 만들지 않고, Prompt Template에 넣을 변수만 제공합니다.
 
-`00 업무 설명 입력`에는 아래처럼 실제 말하듯 한 번에 적습니다. `목적:`, `데이터:` 같은 라벨을 굳이 붙이지 않아도 됩니다.
+### 3.1 업무 구조화 Prompt Template 생성
+
+Langflow 기본 컴포넌트에서 `Prompt Template`을 하나 추가하고, 템플릿 내용에 아래 문장을 넣습니다.
 
 ```text
-매일 아침 설비별 생산량과 불량률을 엑셀로 내려받아 전일 대비 급증한 설비를 확인합니다.
-이상 설비가 있으면 생산량, 불량률, 최근 작업 이력을 같이 보고 원인 후보를 정리합니다.
-정리한 내용은 담당자에게 메일 초안으로 공유하고, 긴급 건은 팀장 승인 후 후속 조치를 사내 시스템에 등록합니다.
+당신은 초보 Langflow 개발자를 돕는 업무 분석가입니다.
+아래 사용자의 자유로운 업무 설명을 읽고, Flow가 이해할 수 있는 가벼운 업무 프로필 JSON으로 변환하세요.
 
-생산/품질 담당자가 아침 회의 전에 위험 설비를 빠르게 파악하고 후속 조치 우선순위를 정하는 것이 목적입니다.
-사용하는 정보는 Excel 생산 실적 파일, 품질 불량률 파일, 사내 설비 이력 시스템, 메일입니다.
-사내 시스템 등록은 팀장 승인 이후에만 가능해야 하고, 메일 발송은 자동 발송이 아니라 초안 작성 후 사람이 확인하고 보내야 합니다.
-결과는 위험 설비 요약, 원인 후보, 담당자 공유 메일 초안, Langflow 구현 순서로 보고 싶습니다.
-우리 팀에는 설비 이력 조회 API가 있어서 설비 ID와 기준 일자를 넣으면 최근 작업 이력, 정비 이력, 이상 이력을 조회할 수 있습니다.
+[사용자 업무 설명]
+{work_description}
+
+[작성 원칙]
+{profile_instructions}
+
+[반환 JSON 스키마]
+{profile_output_schema}
 ```
 
-`00` 노드는 위 서술문에서 목적, 사용 데이터/시스템, 제약사항, 원하는 결과물, 추가 기능 후보를 자동으로 추정합니다.
+Prompt Template을 저장하면 아래 변수 입력 포트가 생깁니다.
 
-라벨을 붙여도 동작하지만, 초보 사용자는 문단으로 자연스럽게 쓰는 방식을 권장합니다.
+| Prompt Template 변수 | 연결할 값 |
+| --- | --- |
+| `work_description` | `01 업무 구조화 프롬프트 변수 준비`의 `업무 설명` |
+| `profile_instructions` | `01 업무 구조화 프롬프트 변수 준비`의 `구조화 지침` |
+| `profile_output_schema` | `01 업무 구조화 프롬프트 변수 준비`의 `출력 스키마 JSON` |
 
-## 6. 추가 기능을 넣는 방법
+### 3.2 AI Agent 설계 Prompt Template 생성
 
-이전 버전에서는 추가 기능을 JSON으로 따로 넣었지만, 지금은 그럴 필요가 없습니다.
-
-업무 설명 안에 아래처럼 자연스럽게 적으면 `02 AI 에이전트 기능 카탈로그`가 자동으로 `user_added_*` 기능 후보를 만듭니다.
+Langflow 기본 컴포넌트에서 `Prompt Template`을 하나 더 추가하고, 템플릿 내용에 아래 문장을 넣습니다.
 
 ```text
-우리 팀에는 사내 티켓 조회 API가 있습니다.
-티켓 ID를 넣으면 티켓 상태, 담당자, 최근 처리 이력을 조회할 수 있습니다.
-처음에는 조회 전용으로만 쓰고, 티켓 수정이나 등록은 사람 승인 뒤에만 하도록 설계해주세요.
+당신은 초보 Langflow 개발자가 실제로 구현할 수 있는 AI Agent 업무 개선안을 설계하는 컨설턴트입니다.
+아래 업무 프로필과 추천 카탈로그를 참고해 현재 업무 Flow와 AI Agent 적용 후 Flow를 설계하세요.
+
+[업무 프로필 JSON]
+{business_profile_json}
+
+[사용 가능한 기능/사례 카탈로그 JSON]
+{catalog_items_json}
+
+[추천 근거 Trace]
+{recommendation_trace_json}
+
+[설계 원칙]
+{design_instructions}
+
+[반환 JSON 스키마]
+{design_output_schema}
 ```
 
-## 7. 출력 결과
+Prompt Template을 저장하면 아래 변수 입력 포트가 생깁니다.
 
-`05 사용자용 설계서 출력`은 아래 내용을 Markdown으로 보여줍니다.
+| Prompt Template 변수 | 연결할 값 |
+| --- | --- |
+| `business_profile_json` | `04 AI Agent 설계 프롬프트 변수 준비`의 `업무 프로필 JSON` |
+| `catalog_items_json` | `04 AI Agent 설계 프롬프트 변수 준비`의 `추천 카탈로그 JSON` |
+| `recommendation_trace_json` | `04 AI Agent 설계 프롬프트 변수 준비`의 `추천 근거 JSON` |
+| `design_instructions` | `04 AI Agent 설계 프롬프트 변수 준비`의 `설계 지침` |
+| `design_output_schema` | `04 AI Agent 설계 프롬프트 변수 준비`의 `출력 스키마 JSON` |
 
-- 한눈에 보는 요약
-- 핵심 카드
-- 업무 프로세스 로직 표
-- 사람이 하는 일과 AI 에이전트가 도울 일
-- AI 에이전트화 개선 아이디어
-- Langflow 구현 흐름
-- 기존 기능flow 재사용 후보
-- 초보자용 구현 순서
-- 추가로 있으면 좋은 정보
-- 참조 정보와 출처 링크
-- 최종 JSON
-- 업무 Flow Mermaid 다이어그램
+### 3.3 전체 연결
 
-## 8. 기존 기능flow와 연결하는 기준
+| 순서 | From | Output | To | Input |
+| --- | --- | --- | --- | --- |
+| 1 | 00 업무 설명 입력 | 업무 요청 | 01 업무 구조화 프롬프트 변수 준비 | 업무 요청 |
+| 2 | 01 업무 구조화 프롬프트 변수 준비 | 업무 설명 | 업무 구조화 Prompt Template | `work_description` |
+| 3 | 01 업무 구조화 프롬프트 변수 준비 | 구조화 지침 | 업무 구조화 Prompt Template | `profile_instructions` |
+| 4 | 01 업무 구조화 프롬프트 변수 준비 | 출력 스키마 JSON | 업무 구조화 Prompt Template | `profile_output_schema` |
+| 5 | 업무 구조화 Prompt Template | Prompt 또는 Message | Agent | input |
+| 6 | 00 업무 설명 입력 | 업무 요청 | 02 업무 구조화 결과 정리 | 업무 요청 |
+| 7 | Agent | text 또는 message | 02 업무 구조화 결과 정리 | Agent/LLM 구조화 응답 |
+| 8 | 02 업무 구조화 결과 정리 | 업무 구조화 결과 | 03 MongoDB 기능/사례 검색 | 업무 구조화 결과 |
+| 9 | 03 MongoDB 기능/사례 검색 | 추천 컨텍스트 | 04 AI Agent 설계 프롬프트 변수 준비 | 추천 컨텍스트 |
+| 10 | 04 AI Agent 설계 프롬프트 변수 준비 | 업무 프로필 JSON | AI Agent 설계 Prompt Template | `business_profile_json` |
+| 11 | 04 AI Agent 설계 프롬프트 변수 준비 | 추천 카탈로그 JSON | AI Agent 설계 Prompt Template | `catalog_items_json` |
+| 12 | 04 AI Agent 설계 프롬프트 변수 준비 | 추천 근거 JSON | AI Agent 설계 Prompt Template | `recommendation_trace_json` |
+| 13 | 04 AI Agent 설계 프롬프트 변수 준비 | 설계 지침 | AI Agent 설계 Prompt Template | `design_instructions` |
+| 14 | 04 AI Agent 설계 프롬프트 변수 준비 | 출력 스키마 JSON | AI Agent 설계 Prompt Template | `design_output_schema` |
+| 15 | AI Agent 설계 Prompt Template | Prompt 또는 Message | Agent | input |
+| 16 | 03 MongoDB 기능/사례 검색 | 추천 컨텍스트 | 05 AI Agent 설계 결과 검증 | 추천 컨텍스트 |
+| 17 | Agent | text 또는 message | 05 AI Agent 설계 결과 검증 | Agent/LLM 설계 응답 |
+| 18 | 05 AI Agent 설계 결과 검증 | AI Agent 설계 결과 | 06 HTML 업무 Flow 렌더링 | AI Agent 설계 결과 |
+| 19 | 06 HTML 업무 Flow 렌더링 | HTML 생성 결과 | 07 사용자 요약 출력 | HTML 생성 결과 |
+| 20 | 07 사용자 요약 출력 | 요약 메시지 | Chat Output | input |
+| 21 | 06 HTML 업무 Flow 렌더링 | HTML 생성 결과 | 08 HTML 원문 출력 | HTML 생성 결과 |
+| 22 | 08 HTML 원문 출력 | HTML 원문 | Chat Output | input |
 
-이 flow는 실제 자동화를 바로 실행하지 않고, 어떤 flow를 붙이면 좋은지 설계합니다.
+Agent는 2개를 쓰는 것이 가장 명확합니다.
+첫 번째 Agent는 업무 설명을 구조화하고, 두 번째 Agent는 추천 컨텍스트를 바탕으로 개선 설계를 만듭니다.
+하나의 Agent를 재사용해도 되지만, 디버깅할 때 두 역할의 응답이 섞이기 쉬우므로 체험 Flow에서는 분리 구성을 권장합니다.
 
-- 데이터 조회가 핵심이면 `reusable_data_flow`를 추천합니다.
-- 조회 결과를 리포트로 보여줘야 하면 `html_report_flow`를 추천합니다.
-- 외부 시스템을 여러 개 조작해야 하면 `에이전트와 도구` 또는 `MCP 도구`를 2차 확장안으로 제안합니다.
-- 승인, 고객 발송, 시스템 업데이트는 `human_review_gate` 패턴을 우선 제안합니다.
+## 4. 00 업무 설명 입력 예시
 
-## 9. 이전 추가 기능 JSON 노드
+```text
+매일 아침 생산 실적과 불량 데이터를 엑셀로 내려받아 설비별 이상 징후를 확인합니다.
+불량률이 전일 대비 급증한 설비는 최근 작업 이력과 정비 이력을 같이 조회해서 원인 후보를 정리합니다.
+결과는 아침 회의 전에 팀장에게 공유하고, 긴급 건은 담당자에게 메일 초안을 작성합니다.
+메일은 자동 발송하지 말고 사람이 확인한 뒤 보내야 합니다.
+```
 
-이전 버전의 `02-1 추가 기능 JSON 프롬프트 준비`, `02-2 추가 기능 JSON 정리` 파일은 `legacy_components` 폴더로 옮겨두었습니다.
+## 5. MongoDB 설정
 
-일반 사용자는 연결하지 않아도 됩니다. 정말 JSON 기반 추가 기능 카탈로그가 필요한 경우에만 참고용으로 사용하세요.
+`03 MongoDB 기능/사례 검색`의 고급 입력값:
+
+| 입력 | 설명 | 기본값 |
+| --- | --- | --- |
+| Mongo URI | MongoDB 연결 URI | 비워두면 seed fallback |
+| DB 이름 | 카탈로그 DB | `business_agent_design` |
+| 기능 컬렉션 | 기능 목록 컬렉션 | `agent_capability_catalog` |
+| 사례 컬렉션 | 개선 사례 컬렉션 | `agent_improvement_cases` |
+| 검색 개수 | 상위 검색 개수 | `8` |
+
+MongoDB 연결이 없어도 Flow는 동작합니다.
+이 경우 `03` 노드는 기본 seed 카탈로그를 사용합니다.
+fallback 여부는 `추천 컨텍스트.catalog_context.catalog_meta.source`, `추천 컨텍스트.catalog_context.catalog_meta.retrieval_status`, `추천 컨텍스트.catalog_context.catalog_meta.fallback_reason`에서 확인할 수 있습니다.
+추천 근거 추적용 값은 `추천 컨텍스트.catalog_context.recommendation_trace.retrieval_source`와 `추천 컨텍스트.catalog_context.recommendation_trace.trace_id`에 남습니다.
+
+## 6. 카탈로그 등록 Flow 연결
+
+운영자용 Flow입니다.
+
+### 6.1 카탈로그 변환 Prompt Template 생성
+
+Langflow 기본 컴포넌트에서 `Prompt Template`을 하나 추가하고, 템플릿 내용에 아래 문장을 넣습니다.
+
+```text
+당신은 Langflow 기능/개선 사례 카탈로그 운영자입니다.
+아래 자연어 설명을 읽고 MongoDB에 저장할 수 있는 표준 카탈로그 JSON으로 변환하세요.
+
+[카탈로그 원문]
+{raw_catalog_text}
+
+[운영자 메모]
+{operator_note}
+
+[작성 원칙]
+{catalog_instructions}
+
+[반환 JSON 스키마]
+{catalog_output_schema}
+```
+
+Prompt Template을 저장하면 아래 변수 입력 포트가 생깁니다.
+
+| Prompt Template 변수 | 연결할 값 |
+| --- | --- |
+| `raw_catalog_text` | `2.2 카탈로그 JSON 프롬프트 변수 준비`의 `카탈로그 원문` |
+| `operator_note` | `2.2 카탈로그 JSON 프롬프트 변수 준비`의 `운영자 메모` |
+| `catalog_instructions` | `2.2 카탈로그 JSON 프롬프트 변수 준비`의 `카탈로그 변환 지침` |
+| `catalog_output_schema` | `2.2 카탈로그 JSON 프롬프트 변수 준비`의 `출력 스키마 JSON` |
+
+### 6.2 전체 연결
+
+| 순서 | From | Output | To | Input |
+| --- | --- | --- | --- | --- |
+| 1 | 2.1 카탈로그 원문 입력 | 카탈로그 원문 데이터 | 2.2 카탈로그 JSON 프롬프트 변수 준비 | 카탈로그 원문 데이터 |
+| 2 | 2.2 카탈로그 JSON 프롬프트 변수 준비 | 카탈로그 원문 | 카탈로그 변환 Prompt Template | `raw_catalog_text` |
+| 3 | 2.2 카탈로그 JSON 프롬프트 변수 준비 | 운영자 메모 | 카탈로그 변환 Prompt Template | `operator_note` |
+| 4 | 2.2 카탈로그 JSON 프롬프트 변수 준비 | 카탈로그 변환 지침 | 카탈로그 변환 Prompt Template | `catalog_instructions` |
+| 5 | 2.2 카탈로그 JSON 프롬프트 변수 준비 | 출력 스키마 JSON | 카탈로그 변환 Prompt Template | `catalog_output_schema` |
+| 6 | 카탈로그 변환 Prompt Template | Prompt 또는 Message | Agent | input |
+| 7 | 2.1 카탈로그 원문 입력 | 카탈로그 원문 데이터 | 2.3 카탈로그 JSON 검증 | 카탈로그 원문 데이터 |
+| 8 | Agent | text 또는 message | 2.3 카탈로그 JSON 검증 | Agent/LLM 카탈로그 응답 |
+| 9 | 2.3 카탈로그 JSON 검증 | 카탈로그 항목 | 2.4 MongoDB 카탈로그 저장 | 카탈로그 항목 |
+| 10 | 2.4 MongoDB 카탈로그 저장 | 저장 결과 | 2.5 카탈로그 저장 결과 출력 | 저장 결과 |
+| 11 | 2.5 카탈로그 저장 결과 출력 | 저장 결과 메시지 | Chat Output | input |
+
+Agent 없이 형식만 테스트하려면 아래처럼 연결합니다.
+
+| 순서 | From | Output | To | Input |
+| --- | --- | --- | --- | --- |
+| 1 | 2.1 카탈로그 원문 입력 | 카탈로그 원문 데이터 | 2.3 카탈로그 JSON 검증 | 카탈로그 원문 데이터 |
+| 2 | 2.3 카탈로그 JSON 검증 | 카탈로그 항목 | 2.4 MongoDB 카탈로그 저장 | 카탈로그 항목 |
+| 3 | 2.4 MongoDB 카탈로그 저장 | 저장 결과 | 2.5 카탈로그 저장 결과 출력 | 저장 결과 |
+| 4 | 2.5 카탈로그 저장 결과 출력 | 저장 결과 메시지 | Chat Output | input |
+
+## 7. 카탈로그 원문 입력 예시
+
+```text
+HTML 리포트 생성 Flow는 데이터 조회 결과를 KPI 카드, 그래프, 표가 포함된 HTML 대시보드로 만들어준다.
+회의 전 공유나 분석 결과 확인 업무에 적합하다.
+외부 공유 전에는 사람이 내용을 확인해야 한다.
+```
+
+## 8. 출력 확인 포인트
+
+- `03 추천 컨텍스트`에 `recommendation_trace`가 포함되는지 확인합니다.
+- `05 AI Agent 설계 결과`에 `validation_report`가 포함되는지 확인합니다.
+- `06 HTML 생성 결과`의 `security_report.passed`가 `true`인지 확인합니다.
+- `08 HTML 원문`은 복사해 `.html` 파일로 저장하면 브라우저에서 열 수 있습니다.
