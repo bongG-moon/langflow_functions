@@ -47,6 +47,8 @@ def _render_report_body(design: dict[str, Any], payload: dict[str, Any]) -> str:
         f"<div class='section'>{_section_header('AI Agent 적용 후 Flow', '자동화, 보조, 사람 검토 단계를 구분한 개선 흐름입니다.')}"
         f"<div class='flow'>{_render_steps(design.get('to_be_flow'), '개선')}</div></div>"
         "</section>"
+        f"<section class='section'>{_section_header('업무 단계별 개선 명세', '현재 업무 단계마다 어떤 기능을 참고해 어떻게 개선하는지 구현 가능한 수준으로 정리합니다.')}"
+        f"<div class='blueprint'>{_render_improvement_blueprint(design.get('improvement_blueprint'))}</div></section>"
         f"<section class='section'>{_section_header('추천 기능 매핑', '카탈로그에서 선택된 기능과 적용 이유입니다.')}"
         f"<div class='cards'>{_render_capabilities(design.get('recommended_capabilities'))}</div></section>"
         "<section class='grid two'>"
@@ -164,6 +166,21 @@ def _document(title: str, summary: str, body: str) -> str:
       background:var(--soft);
       min-height:142px;
     }}
+    .blueprint {{ display:grid; gap:16px; }}
+    .blueprint-card {{
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:#fff;
+      padding:18px;
+    }}
+    .blueprint-head {{ display:flex; gap:12px; align-items:flex-start; justify-content:space-between; margin-bottom:14px; }}
+    .blueprint-head h3 {{ font-size:18px; }}
+    .spec-grid {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }}
+    .spec-box {{ border:1px solid var(--line); border-radius:12px; background:var(--soft); padding:13px; }}
+    .spec-box strong {{ display:block; margin-bottom:6px; font-size:13px; color:#3346c4; }}
+    .cap-list {{ display:grid; gap:10px; margin-top:12px; }}
+    .cap-spec {{ border:1px solid var(--line); border-radius:12px; padding:13px; background:#fff; }}
+    .cap-spec h4 {{ margin:0 0 6px; font-size:15px; }}
     .muted {{ color:var(--muted); }}
     .links {{ margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }}
     .links a {{ color:#3346c4; font-weight:700; text-decoration:none; font-size:13px; }}
@@ -175,7 +192,7 @@ def _document(title: str, summary: str, body: str) -> str:
     .footer {{ margin-top:18px; color:var(--muted); font-size:12px; }}
     @media (max-width: 900px) {{
       .page {{ padding:18px; }}
-      .two, .cards {{ grid-template-columns:1fr; }}
+      .two, .cards, .spec-grid {{ grid-template-columns:1fr; }}
       h1 {{ font-size:27px; }}
     }}
   </style>
@@ -245,6 +262,75 @@ def _render_capabilities(items: Any) -> str:
             "</article>"
         )
     return "".join(rows) or "<p class='muted'>추천 기능이 없습니다.</p>"
+
+
+def _render_improvement_blueprint(items: Any) -> str:
+    rows = []
+    for index, item in enumerate(_as_list(items)[:12], 1):
+        row = _dict(item)
+        detail = _dict(row.get("implementation_detail"))
+        human_review = _dict(row.get("human_review"))
+        review_label = "사람 검토 필요" if human_review.get("required") else "자동/보조 가능"
+        rows.append(
+            "<article class='blueprint-card'>"
+            "<div class='blueprint-head'>"
+            f"<div><div class='badges'><span class='badge'>{_safe(row.get('as_is_step_id') or index)}</span>"
+            f"<span class='badge subtle'>{_safe(row.get('automation_type') or '보조')}</span>"
+            f"<span class='badge subtle'>{_safe(review_label)}</span></div>"
+            f"<h3>{_safe(row.get('as_is_step_title') or '현재 업무 단계')}</h3></div>"
+            "</div>"
+            "<div class='spec-grid'>"
+            f"<div class='spec-box'><strong>현재 문제점</strong><p class='muted'>{_safe(row.get('current_pain_point') or '')}</p></div>"
+            f"<div class='spec-box'><strong>개선 목표</strong><p class='muted'>{_safe(row.get('improvement_goal') or '')}</p></div>"
+            f"<div class='spec-box'><strong>무엇이 바뀌는가</strong><p class='muted'>{_safe(detail.get('what_changes') or '')}</p></div>"
+            f"<div class='spec-box'><strong>사람 검토</strong><p class='muted'>{_safe(human_review.get('reason') or review_label)}</p></div>"
+            "</div>"
+            f"<div class='cap-list'>{_render_applied_capabilities(row.get('applied_capabilities'))}</div>"
+            "<div class='spec-grid'>"
+            f"<div class='spec-box'><strong>구현 방법</strong>{_render_plain_list(detail.get('how_to_build'))}</div>"
+            f"<div class='spec-box'><strong>연결 방식</strong>{_render_plain_list(detail.get('connection_guide'))}</div>"
+            f"<div class='spec-box'><strong>검증 기준</strong>{_render_plain_list(detail.get('acceptance_criteria'))}</div>"
+            f"<div class='spec-box'><strong>개선 후 단계 ID</strong>{_render_plain_list(row.get('to_be_step_ids'))}</div>"
+            "</div>"
+            "</article>"
+        )
+    return "".join(rows) or "<p class='muted'>표시할 개선 명세가 없습니다.</p>"
+
+
+def _render_applied_capabilities(items: Any) -> str:
+    rows = []
+    for item in _as_list(items)[:8]:
+        cap = _dict(item)
+        rows.append(
+            "<article class='cap-spec'>"
+            f"<div class='badges'><span class='badge'>{_safe(cap.get('catalog_id') or 'capability')}</span></div>"
+            f"<h4>{_safe(cap.get('capability_title') or cap.get('catalog_id') or '적용 기능')}</h4>"
+            f"<p class='muted'>{_safe(cap.get('usage') or '')}</p>"
+            f"<div class='spec-grid'>"
+            f"<div class='spec-box'><strong>선택 이유</strong><p class='muted'>{_safe(cap.get('why_this_capability') or '')}</p></div>"
+            f"<div class='spec-box'><strong>Langflow 구성</strong>{_render_plain_list(cap.get('langflow_nodes'))}</div>"
+            f"<div class='spec-box'><strong>입력</strong>{_render_plain_list(cap.get('inputs'))}</div>"
+            f"<div class='spec-box'><strong>출력</strong>{_render_plain_list(cap.get('outputs'))}</div>"
+            f"</div>"
+            f"{_render_reference_sources(cap.get('reference_sources'))}"
+            "</article>"
+        )
+    return "".join(rows) or "<p class='muted'>적용 기능이 없습니다.</p>"
+
+
+def _render_reference_sources(items: Any) -> str:
+    rows = []
+    for index, item in enumerate(_as_list(items)[:8], 1):
+        row = _dict(item)
+        title = row.get("title") or f"참고 자료 {index}"
+        url = str(row.get("url") or "").strip()
+        note = row.get("how_used") or ""
+        if url.startswith(("http://", "https://")):
+            title_html = f"<a href='{_safe(url)}' target='_blank' rel='noreferrer noopener'>{_safe(title)}</a>"
+        else:
+            title_html = f"<span>{_safe(title if not url else url)}</span>"
+        rows.append(f"<li><strong>{title_html}</strong><span>{_safe(note)}</span></li>")
+    return "<div class='spec-box reference-sources' style='margin-top:12px'><strong>참고 정보</strong><ul class='list reference-list'>" + "".join(rows) + "</ul></div>" if rows else ""
 
 
 def _link_html(link: str, index: int) -> str:

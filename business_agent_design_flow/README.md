@@ -10,7 +10,9 @@
 - 기능 목록과 기존 개선 사례는 MongoDB에서 검색합니다.
 - MongoDB 연결이 없으면 내장 seed 카탈로그로 fallback되어 체험이 가능합니다.
 - 추천 결과에는 `recommendation_trace`가 포함되어 어떤 카탈로그 항목이 왜 선택됐는지 추적할 수 있습니다.
+- HTML 결과에는 현재 업무 단계별 개선 명세가 포함되며, 적용 기능, 구현 방법, 검증 기준, 참고 링크를 함께 보여줍니다.
 - HTML은 LLM이 직접 만든 코드를 사용하지 않고, 검증된 JSON을 deterministic secure renderer가 렌더링합니다.
+- `html_report_flow/report_api/server.py`를 함께 실행하면 HTML 결과를 저장하고 다운로드 링크를 바로 받을 수 있습니다.
 - 카탈로그 등록은 별도 운영자용 Flow인 `2.1-2.5` 노드로 처리합니다.
 - 각 Langflow 컴포넌트 py 파일은 로컬 공통 모듈 import 없이 단독으로 복사/등록 가능한 standalone 구조이며, 해당 노드에 필요한 최소 helper만 포함합니다.
 - 웹에서 확인한 Langflow 기본 기능은 카탈로그 항목과 추천 HTML 카드에 참고 링크가 함께 표시됩니다.
@@ -23,7 +25,8 @@ business_agent_design_flow/
 ├─ CONNECTION_GUIDE.md
 ├─ docs/
 │  ├─ SERVICE_REDESIGN_SPEC.md
-│  └─ LANGFLOW_CAPABILITY_SEED_FOR_MONGODB_KO.md
+│  ├─ LANGFLOW_CAPABILITY_SEED_FOR_MONGODB_KO.md
+│  └─ prompts/
 ├─ samples/
 │  └─ ONE_FILE_TEST_CASES.md
 └─ langflow_components/
@@ -38,11 +41,8 @@ business_agent_design_flow/
       ├─ 06_secure_html_renderer.py
       ├─ 07_user_summary_output.py
       ├─ 08_html_source_output.py
-      ├─ 02_1_catalog_source_input.py
-      ├─ 02_2_catalog_json_prompt_variables.py
-      ├─ 02_3_catalog_json_normalizer.py
-      ├─ 02_4_mongodb_catalog_store.py
-      └─ 02_5_catalog_store_summary.py
+      ├─ 09_report_api_publisher.py
+      └─ catalog_json_flow/
 ```
 
 ## 메인 Flow
@@ -65,12 +65,16 @@ business_agent_design_flow/
 06 HTML 업무 Flow 렌더링
   -> 08 HTML 원문 출력
   -> Chat Output
+
+06 HTML 업무 Flow 렌더링
+  -> 09 공유 링크 발행
+  -> Chat Output
 ```
 
 LLM 없이 빠르게 확인할 때는 아래처럼 연결합니다.
 
 ```text
-00 -> 02 -> 03 -> 05 -> 06 -> 07 또는 08 -> Chat Output
+00 -> 02 -> 03 -> 05 -> 06 -> 07, 08 또는 09 -> Chat Output
 ```
 
 ## 카탈로그 등록 Flow
@@ -116,5 +120,6 @@ Mongo URI가 비어 있으면:
 
 - [서비스형 재설계 상세 설계서](docs/SERVICE_REDESIGN_SPEC.md)
 - [MongoDB 카탈로그 등록용 Langflow 기능 seed](docs/LANGFLOW_CAPABILITY_SEED_FOR_MONGODB_KO.md)
+- [Prompt Template 모음](docs/prompts)
 - [연결 가이드](CONNECTION_GUIDE.md)
 - [샘플 입력](samples/ONE_FILE_TEST_CASES.md)

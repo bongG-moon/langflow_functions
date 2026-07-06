@@ -21,6 +21,10 @@ def build_agent_design_template_variables(catalog_context_value: Any) -> dict[st
             "- 하나의 방식만 고집하지 말고, 가능하면 기본안과 확장안을 함께 제안하세요.",
             "- 자동 발송, 시스템 쓰기, 승인, 개인정보 처리처럼 위험한 작업은 반드시 사람 검토 gate를 넣으세요.",
             "- 초보 Langflow 개발자가 따라할 수 있도록 구현 순서를 구체적으로 작성하세요.",
+            "- 현재 업무 단계마다 어떤 기능을 활용해 어떻게 개선하는지 improvement_blueprint에 상세히 작성하세요.",
+            "- improvement_blueprint의 각 항목에는 현재 단계, 문제점, 개선 목표, 적용 기능, 구현 방법, 입력/출력, 검증 기준을 포함하세요.",
+            "- 적용 기능은 카탈로그의 canonical_key를 catalog_id로 쓰고, 기능을 선택한 근거와 참고 링크 활용 방법을 적으세요.",
+            "- 카탈로그 항목에 source_links가 있으면 reference_sources에 보존하세요.",
             "- HTML 코드는 만들지 마세요. 아래 JSON 설계만 반환하세요.",
             "- JSON 외의 설명 문장은 반환하지 마세요.",
         ]
@@ -64,6 +68,43 @@ def _design_schema() -> dict[str, Any]:
                     "usage": "이 업무에서 쓰는 방식",
                     "reason": "추천 근거",
                     "implementation_hint": "Langflow 구현 힌트",
+                    "reference_sources": [
+                        {"title": "참고 자료명", "url": "https://...", "how_used": "이 설계에서 참고한 방식"}
+                    ],
+                }
+            ],
+            "improvement_blueprint": [
+                {
+                    "as_is_step_id": "A1",
+                    "as_is_step_title": "현재 업무 단계",
+                    "current_pain_point": "현재 방식의 문제점 또는 비효율",
+                    "improvement_goal": "이 단계에서 달성할 개선 목표",
+                    "automation_type": "자동화 | 보조 | 사람 검토 | 수동 유지",
+                    "to_be_step_ids": ["T1"],
+                    "applied_capabilities": [
+                        {
+                            "catalog_id": "카탈로그 canonical_key",
+                            "capability_title": "기능명",
+                            "usage": "이 단계에서 기능을 쓰는 방식",
+                            "why_this_capability": "이 기능을 선택한 이유",
+                            "langflow_nodes": ["Prompt Template", "Agent"],
+                            "inputs": ["입력값"],
+                            "outputs": ["출력값"],
+                            "reference_sources": [
+                                {"title": "참고 자료명", "url": "https://...", "how_used": "참고한 구현 관점"}
+                            ],
+                        }
+                    ],
+                    "implementation_detail": {
+                        "what_changes": "현재 방식에서 무엇이 바뀌는지",
+                        "how_to_build": ["Langflow에서 구현할 작업"],
+                        "connection_guide": ["노드 연결 또는 데이터 전달 방식"],
+                        "acceptance_criteria": ["구현 완료 판단 기준"],
+                    },
+                    "human_review": {
+                        "required": False,
+                        "reason": "사람 검토가 필요한 이유",
+                    },
                 }
             ],
             "implementation_roadmap": [
