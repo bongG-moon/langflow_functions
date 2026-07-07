@@ -1,0 +1,62 @@
+{
+  "brand": "sk_hynix",
+  "source": {
+    "type": "user_provided_logo_color_reference",
+    "note": "첨부 이미지의 HEX 표기 기준"
+  },
+  "core_colors": {
+    "sk_red": {
+      "hex": "#EA002C",
+      "pantone": "PANTONE 186 C",
+      "rgb": [234, 0, 44],
+      "usage": ["primary_cta", "headline_accent", "security_emphasis"]
+    },
+    "sk_orange": {
+      "hex": "#F47725",
+      "pantone": "PANTONE 158 C",
+      "rgb": [244, 119, 37],
+      "usage": ["secondary_accent", "badge", "sticker", "progress"]
+    }
+  },
+  "derived_colors": {
+    "sk_red_soft": "#FFE8ED",
+    "sk_red_lighter": "#FFF3F5",
+    "sk_orange_soft": "#FFF0E6",
+    "sk_orange_lighter": "#FFF7ED",
+    "sk_cream": "#FFFDF7",
+    "sk_ink": "#17202A",
+    "sk_muted": "#64748B",
+    "sk_line": "#F2D9D0"
+  },
+  "themes": {
+    "sk_cute_soft": {
+      "description": "SK RED와 SK Orange를 귀여운 파스텔 카드뉴스 톤으로 낮춘 기본 테마",
+      "accent_color": "#EA002C",
+      "secondary_color": "#F47725",
+      "background_color": "#FFF7ED",
+      "surface_color": "#FFFDF7",
+      "text_color": "#17202A",
+      "muted_text_color": "#64748B",
+      "line_color": "#F2D9D0",
+      "button": {
+        "primary_bg": "#EA002C",
+        "primary_text": "#FFFFFF",
+        "secondary_bg": "#FFF0E6",
+        "secondary_text": "#9A3412"
+      },
+      "slide_role_colors": {
+        "cover": {"background": "#FFF7ED", "accent": "#EA002C", "secondary": "#F47725"},
+        "why": {"background": "#FFF3F5", "accent": "#EA002C", "secondary": "#F47725"},
+        "case": {"background": "#FFFDF7", "accent": "#F47725", "secondary": "#EA002C"},
+        "workflow": {"background": "#FFFDF7", "accent": "#F47725", "secondary": "#EA002C"},
+        "tip": {"background": "#FFF0E6", "accent": "#F47725", "secondary": "#EA002C"},
+        "checklist": {"background": "#FFF0E6", "accent": "#F47725", "secondary": "#EA002C"},
+        "security": {"background": "#FFE8ED", "accent": "#EA002C", "secondary": "#F47725"},
+        "caution": {"background": "#FFE8ED", "accent": "#EA002C", "secondary": "#F47725"},
+        "quiz": {"background": "#FFFDF7", "accent": "#F47725", "secondary": "#EA002C"},
+        "cta": {"background": "#FFF7ED", "accent": "#EA002C", "secondary": "#F47725"},
+        "closing": {"background": "#FFF7ED", "accent": "#EA002C", "secondary": "#F47725"}
+      }
+    }
+  }
+}

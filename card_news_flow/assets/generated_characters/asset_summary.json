@@ -1,0 +1,41 @@
+{
+  "manifest": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\generated_character_assets.local.json",
+  "preview": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\preview_generated_character_assets.png",
+  "png_assets": [
+    {
+      "asset_id": "hayangi_ai_hello",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_ai_hello.png",
+      "width": 517,
+      "height": 475,
+      "bytes": 314230
+    },
+    {
+      "asset_id": "hayangi_security_shield",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_security_shield.png",
+      "width": 495,
+      "height": 465,
+      "bytes": 302844
+    },
+    {
+      "asset_id": "hadaengi_ai_helper",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_ai_helper.png",
+      "width": 523,
+      "height": 390,
+      "bytes": 305644
+    },
+    {
+      "asset_id": "hadaengi_cta_point",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_cta_point.png",
+      "width": 582,
+      "height": 385,
+      "bytes": 285084
+    },
+    {
+      "asset_id": "duo_ai_team",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\duo_ai_team.png",
+      "width": 727,
+      "height": 359,
+      "bytes": 407856
+    }
+  ]
+}
