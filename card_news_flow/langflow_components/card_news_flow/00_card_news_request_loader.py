@@ -61,7 +61,9 @@ def build_card_news_request(
             "template": {
                 "template_id": "monthly_ai_news_standard",
                 "fixed_structure": True,
-                "rule": "화면 수가 같으면 역할/레이아웃 순서는 고정하고 내용만 변경합니다.",
+                "rule": "화면 수가 같으면 SNS 가로 카드 프레임, 역할 순서, 캐릭터/버튼 위치는 고정하고 중앙 내용 영역 안에서는 허용된 디자인 블록으로 구성합니다.",
+                "fixed_slots": ["topbar", "content_area", "character_area", "action_area"],
+                "content_area_design": ["lead", "highlight", "mini_cards", "steps", "checklist", "quote", "metric", "tag_row"],
             },
             "page_image_overrides": page_image_overrides,
             "instruction_derived": {
@@ -197,6 +199,7 @@ def _parse_page_image_overrides(value: Any) -> tuple[list[dict[str, Any]], list[
                 "data_uri": data_uri,
                 "alt": _clean(item.get("alt")) or "사용자가 지정한 카드뉴스 이미지",
                 "fit": _safe_token(item.get("fit"), {"contain", "cover", "fill"}, "contain"),
+                "render_mode": _safe_token(item.get("render_mode"), {"content_area", "full_card"}, "content_area"),
                 "background_color": _safe_color(item.get("background_color"), "#FFFDF7"),
                 "source": _clean(item.get("source")) or "user_provided",
             }

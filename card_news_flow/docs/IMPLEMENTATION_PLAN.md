@@ -20,7 +20,10 @@
 - LLM은 HTML을 직접 만들지 않고 JSON 계획만 생성합니다.
 - HTML은 deterministic renderer가 템플릿과 안전한 CSS로 생성합니다.
 - 같은 화면 수에서는 역할 순서와 layout을 고정하고, 매월 제목/본문/bullet/CTA 같은 내용만 바뀌게 합니다.
-- 사용자가 특정 페이지 이미지를 base64로 지정하면 그 페이지는 LLM 생성 문구 없이 이미지 전용 페이지로 렌더링합니다.
+- 비이미지 페이지는 고정 SNS 카드 프레임 안에서 `topbar`, `character_area`, `action_area` 위치를 유지합니다.
+- 중앙 `content_area` 안에서는 LLM이 허용된 `content_blocks`를 조합해 내용에 맞는 내부 디자인을 만들 수 있습니다.
+- 사용자가 특정 페이지 이미지를 base64로 지정하면 기본적으로 기존 템플릿의 `content_area` 안에 이미지가 자연스럽게 삽입됩니다.
+- 카드 전체를 완성 이미지로 대체해야 하는 경우에는 이미지 override의 `render_mode`를 `full_card`로 둡니다.
 - 사용자 입력, LLM 텍스트, asset metadata는 모두 HTML escape 처리합니다.
 - 버튼/페이지 이동은 v1에서 JavaScript 없이 anchor navigation과 CSS `:target` 화면 전환으로 구현합니다.
 - 애니메이션은 whitelist된 CSS animation token만 허용합니다.
@@ -40,6 +43,30 @@
 - 제목은 짧고 크게, 본문은 2-4줄 중심
 - 카드마다 작은 장식 요소를 두되 업무 메시지 가독성을 해치지 않음
 - 귀엽지만 유아용처럼 보이지 않도록 회사 공지에 맞는 정돈된 여백 유지
+
+고정 서비스 템플릿:
+
+| 슬롯 | 고정/변경 | 설명 |
+| --- | --- | --- |
+| `topbar` | 고정 | 시리즈명과 현재 페이지 번호 |
+| `content_area` | 내부 구성 변경 가능 | headline, body, bullets, 발간호 정보, `content_blocks` |
+| `character_area` | asset만 변경 | 등록된 하냥이/하댕이 포즈팩의 `asset_id` 선택 |
+| `action_area` | 동작만 변경 | 이전/다음/CTA 버튼 |
+
+따라서 같은 화면 수의 카드뉴스는 매달 동일한 바깥 구조를 유지하고, 사용자가 넣은 주제에 따라 중앙 내용 영역 안의 정보 배치와 캐릭터 포즈가 달라집니다.
+
+`content_area` 내부 디자인 블록:
+
+| block type | 용도 |
+| --- | --- |
+| `lead` | 한 줄 리드 문장 |
+| `highlight` | 핵심 메시지 강조 박스 |
+| `mini_cards` | 2-3개 정보 카드 |
+| `steps` | 단계/흐름 |
+| `checklist` | 실행 체크리스트 |
+| `quote` | 짧은 인용/원칙 문장 |
+| `metric` | 수치/키워드 강조 |
+| `tag_row` | 키워드 칩 |
 
 v1 renderer는 아래 theme token을 우선 지원합니다.
 
@@ -87,6 +114,7 @@ v1 renderer는 아래 theme token을 우선 지원합니다.
     "data_uri": "data:image/png;base64,PUT_APPROVED_BASE64_HERE",
     "alt": "사용자가 만든 3페이지 이미지",
     "fit": "contain",
+    "render_mode": "content_area",
     "background_color": "#FFFDF7"
   }
 ]
@@ -240,7 +268,8 @@ LLM에 전달하는 지침:
 - 카드별 제목은 짧고 명확하게 작성합니다.
 - 본문은 모바일에서 읽히도록 2-4줄 안으로 제한합니다.
 - `fixed_structure=true`이면 `suggested_slide_roles` 순서를 그대로 따르고, 역할/레이아웃을 새로 설계하지 않습니다.
-- `page_image_overrides`가 지정된 페이지는 `role=image`, `layout=image_full`로 두고 문구/캐릭터/버튼을 비웁니다.
+- `page_image_overrides`가 지정된 페이지는 기본적으로 기존 템플릿 역할을 유지하고 `content_area` 안에 이미지를 삽입합니다.
+- `render_mode=full_card`인 이미지 대체 페이지는 `role=image`, `layout=image_full`로 두고 문구/캐릭터/버튼을 비웁니다.
 - 캐릭터는 필요한 카드에서 `asset_id`로만 참조합니다.
 - 하냥이/하댕이 포즈팩을 사용할 때는 `character_key`, `pose`, `ai_context`, `recommended_slide_roles`를 보고 가장 맞는 `asset_id`를 선택합니다.
 - 애니메이션은 허용 목록에서만 고릅니다.
@@ -302,7 +331,8 @@ LLM이 만든 카드뉴스 계획을 검증하고 renderer용 안전 payload로 
 - slide 수가 3장 미만이면 cover, body, closing 최소 3장을 보강합니다.
 - 요청된 slide 수에 맞춰 부족한 slide를 고정 템플릿 슬롯으로 보강하고 초과 slide를 제거합니다.
 - LLM이 다른 role/layout을 반환해도 최종 role/layout은 표준 템플릿 순서로 재정렬합니다.
-- 이미지 대체 페이지는 `image_override`만 유지하고 headline/body/bullets/buttons/character를 제거합니다.
+- `render_mode=content_area` 이미지 대체 페이지는 템플릿 프레임과 이동 버튼을 유지하고 중앙 내용 영역에 이미지를 배치합니다.
+- `render_mode=full_card` 이미지 대체 페이지는 `image_override`만 유지하고 headline/body/bullets/buttons/character를 제거합니다.
 - `character.asset_id`가 등록된 자산에 없으면 기본 캐릭터로 대체합니다.
 - `animation`은 `none`, `fade_up`, `slide_in`, `float_in`, `pulse_soft`, `stagger` 중 하나만 허용합니다.
 - `layout`은 허용된 layout token만 사용합니다.

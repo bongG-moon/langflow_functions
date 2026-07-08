@@ -3,7 +3,7 @@ from __future__ import annotations
 """11 페이지 이미지 대체 업로드 노드.
 
 Langflow 서버에 업로드된 이미지 또는 data URI를 card_news_request.page_image_overrides에 추가합니다.
-지정된 페이지는 LLM 생성 문구 없이 이미지 전용 slide로 렌더링됩니다.
+지정된 페이지는 LLM 생성 문구 없이 템플릿의 내용 영역 또는 카드 전체 이미지로 렌더링됩니다.
 """
 
 import base64
@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from lfx.custom.custom_component.component import Component
-from lfx.io import DataInput, MessageTextInput, Output
+from lfx.io import DataInput, FileInput, MessageTextInput, Output
 from lfx.schema.data import Data
 
 
@@ -24,12 +24,14 @@ DEFAULT_MAX_IMAGE_BYTES = 4 * 1024 * 1024
 def add_page_image_override(
     payload_value: Any,
     uploaded_image: Any = None,
+    image_file: Any = None,
     image_path: Any = "",
     direct_data_uri: Any = "",
     page: Any = "3",
     slide_id: Any = "",
     alt: Any = "",
     fit: Any = "contain",
+    render_mode: Any = "content_area",
     background_color: Any = "#FFFDF7",
     max_image_bytes: Any = DEFAULT_MAX_IMAGE_BYTES,
 ) -> dict[str, Any]:
@@ -37,7 +39,7 @@ def add_page_image_override(
 
     payload = _payload(payload_value)
     max_bytes = _parse_size(max_image_bytes, DEFAULT_MAX_IMAGE_BYTES)
-    image, image_warnings = _extract_image(uploaded_image, image_path, direct_data_uri, max_bytes)
+    image, image_warnings = _extract_image(uploaded_image, image_file, image_path, direct_data_uri, max_bytes)
     warnings = list(image_warnings)
     errors: list[str] = []
     page_number = _positive_int(page, 0)
@@ -53,6 +55,7 @@ def add_page_image_override(
         "data_uri": image.get("data_uri", ""),
         "alt": _clean(alt) or "사용자가 업로드한 카드뉴스 페이지 이미지",
         "fit": _safe_token(fit, {"contain", "cover", "fill"}, "contain"),
+        "render_mode": _safe_token(render_mode, {"content_area", "full_card"}, "content_area"),
         "background_color": _safe_color(background_color, "#FFFDF7"),
         "source": "langflow_upload",
         "mime_type": image.get("mime_type", ""),
@@ -93,9 +96,11 @@ def _replace_override(items: list[dict[str, Any]], override: dict[str, Any]) -> 
     return result
 
 
-def _extract_image(uploaded_image: Any, image_path: Any, direct_data_uri: Any, max_bytes: int) -> tuple[dict[str, Any], list[str]]:
+def _extract_image(uploaded_image: Any, image_file: Any, image_path: Any, direct_data_uri: Any, max_bytes: int) -> tuple[dict[str, Any], list[str]]:
     warnings: list[str] = []
-    candidates = [_clean(direct_data_uri), _clean(image_path)]
+    candidates = [_clean(direct_data_uri)]
+    candidates.extend(_candidate_values(image_file))
+    candidates.append(_clean(image_path))
     candidates.extend(_candidate_values(uploaded_image))
     for candidate in candidates:
         image, warning = _image_from_candidate(candidate, max_bytes)
@@ -111,7 +116,9 @@ def _candidate_values(value: Any) -> list[Any]:
         return []
     data = getattr(value, "data", None)
     if data is not None and data is not value:
-        return _candidate_values(data)
+        nested = _candidate_values(data)
+        if nested:
+            return nested
     if isinstance(value, list):
         result: list[Any] = []
         for item in value:
@@ -126,15 +133,20 @@ def _candidate_values(value: Any) -> list[Any]:
     for attr in ("path", "file_path", "filepath", "file", "files", "file_paths", "location", "content", "text", "value"):
         nested = getattr(value, attr, None)
         if nested is not None and nested is not value:
-            return _candidate_values(nested)
+            candidates = _candidate_values(nested)
+            if candidates:
+                return candidates
     return [value]
 
 
 def _image_from_candidate(candidate: Any, max_bytes: int) -> tuple[dict[str, Any], str]:
     if not candidate:
         return {}, ""
-    if isinstance(candidate, bytes):
-        return _image_from_bytes(candidate, max_bytes)
+    raw, read_warning = _read_image_bytes(candidate)
+    if read_warning:
+        return {}, read_warning
+    if raw is not None:
+        return _image_from_bytes(raw, max_bytes)
     text = _clean(candidate)
     if not text:
         return {}, ""
@@ -164,6 +176,30 @@ def _image_from_candidate(candidate: Any, max_bytes: int) -> tuple[dict[str, Any
     except Exception:
         return {}, ""
     return _image_from_bytes(raw, max_bytes)
+
+
+def _read_image_bytes(candidate: Any) -> tuple[bytes | None, str]:
+    if isinstance(candidate, bytes):
+        return candidate, ""
+    if isinstance(candidate, bytearray):
+        return bytes(candidate), ""
+    if isinstance(candidate, Path):
+        try:
+            return candidate.read_bytes(), ""
+        except Exception as exc:
+            return None, f"이미지 파일을 읽지 못했습니다: {exc}"
+    read = getattr(candidate, "read", None)
+    if callable(read):
+        try:
+            raw = read()
+        except Exception as exc:
+            return None, f"업로드 이미지 파일을 읽지 못했습니다: {exc}"
+        if isinstance(raw, str):
+            raw = raw.encode("utf-8")
+        if not isinstance(raw, (bytes, bytearray)):
+            return None, "업로드 이미지 파일이 bytes를 반환하지 않았습니다."
+        return bytes(raw), ""
+    return None, ""
 
 
 def _image_from_bytes(raw: bytes, max_bytes: int) -> tuple[dict[str, Any], str]:
@@ -284,8 +320,15 @@ class PageImageOverrideBuilder(Component):
         ),
         DataInput(
             name="uploaded_image",
-            display_name="업로드 이미지/File 출력",
+            display_name="Base64 Message/File 출력",
             input_types=["Data", "Message", "File", "Text", "JSON", "StructuredContent", "Structured Content"],
+            required=False,
+        ),
+        FileInput(
+            name="image_file",
+            display_name="업로드 이미지 파일",
+            info="Read File을 거치지 말고 PNG/JPEG/WebP 파일을 여기 직접 업로드하세요.",
+            file_types=["png", "jpg", "jpeg", "webp"],
             required=False,
         ),
         MessageTextInput(name="image_path", display_name="서버 이미지 경로", value="", required=False, advanced=True),
@@ -294,6 +337,7 @@ class PageImageOverrideBuilder(Component):
         MessageTextInput(name="slide_id", display_name="대체할 slide_id", value="", required=False, advanced=True),
         MessageTextInput(name="alt", display_name="대체 텍스트", value="", required=False),
         MessageTextInput(name="fit", display_name="이미지 맞춤", value="contain", required=False),
+        MessageTextInput(name="render_mode", display_name="이미지 배치 방식", value="content_area", required=False),
         MessageTextInput(name="background_color", display_name="배경색", value="#FFFDF7", required=False, advanced=True),
         MessageTextInput(name="max_image_bytes", display_name="이미지 최대 크기", value=str(DEFAULT_MAX_IMAGE_BYTES), required=False, advanced=True),
     ]
@@ -303,12 +347,14 @@ class PageImageOverrideBuilder(Component):
         result = add_page_image_override(
             getattr(self, "payload", None),
             getattr(self, "uploaded_image", None),
+            getattr(self, "image_file", None),
             getattr(self, "image_path", ""),
             getattr(self, "direct_data_uri", ""),
             getattr(self, "page", "3"),
             getattr(self, "slide_id", ""),
             getattr(self, "alt", ""),
             getattr(self, "fit", "contain"),
+            getattr(self, "render_mode", "content_area"),
             getattr(self, "background_color", "#FFFDF7"),
             getattr(self, "max_image_bytes", str(DEFAULT_MAX_IMAGE_BYTES)),
         )

@@ -5,8 +5,7 @@
 따라서 Langflow 내부에서는 아래 흐름으로 처리합니다.
 
 ```text
-Langflow File/Upload 컴포넌트
--> 업로드 이미지 변환 노드
+10/11 업로드 노드의 FileInput에 이미지 직접 업로드
 -> base64 data URI가 들어간 payload
 -> 캐릭터 자산 로더 또는 카드뉴스 요청 payload
 -> HTML renderer
@@ -16,23 +15,26 @@ Langflow File/Upload 컴포넌트
 
 하냥이/하댕이 AI 포즈팩처럼 여러 달 반복 사용할 이미지는 `10 업로드 캐릭터 이미지 자산 등록` 노드로 등록합니다.
 
-Langflow 기본 컴포넌트는 버전에 따라 이름이 조금 다를 수 있습니다.
-이미지 업로드는 우선 `Chat Input`의 파일/이미지 첨부를 사용하거나, 서버의 파일 관리 화면 `My Files` 또는 `/files`에 이미지를 업로드한 뒤 해당 파일 path/base64를 넘기는 방식을 권장합니다.
-`Read File`은 주로 문서/텍스트 계열 파일을 파싱하는 컴포넌트라 PNG/JPEG/WebP를 직접 읽지 못할 수 있습니다.
-이 Flow에서는 이미지 첨부 Message, File 출력, file path, data URI, 순수 base64 중 하나를 `10 업로드 캐릭터 이미지 자산 등록`의 `업로드 이미지/File 출력` 입력에 연결하면 됩니다.
+`Read File`은 문서/텍스트 계열 파일 파싱에 맞춰진 경우가 많아 PNG/JPEG/WebP에서 실패할 수 있습니다.
+따라서 운영 환경에서는 `10 업로드 캐릭터 이미지 자산 등록` 노드의 `업로드 이미지 파일` FileInput에 이미지를 직접 업로드하는 방식을 우선 사용합니다.
+별도 변환 노드를 쓰는 경우에는 ImageToBase64 같은 컴포넌트의 Base64 Message 출력을 `Base64 Message/File 출력` 입력에 연결할 수 있습니다.
 
 권장 연결:
 
 | 순서 | From | Output | To | Input |
 | --- | --- | --- | --- | --- |
-| 1 | Langflow File/Upload | File 또는 Data 출력 | 10 업로드 캐릭터 이미지 자산 등록 | 업로드 이미지/File 출력 |
-| 2 | 02 카드뉴스 브리프 정리 | 카드뉴스 브리프 | 10 업로드 캐릭터 이미지 자산 등록 | 기존 payload |
-| 3 | 10 업로드 캐릭터 이미지 자산 등록 | 자산 등록 payload | 03 캐릭터 자산 불러오기 | 카드뉴스 브리프 |
+| 1 | 02 카드뉴스 브리프 정리 | 카드뉴스 브리프 | 10 업로드 캐릭터 이미지 자산 등록 | 기존 payload |
+| 2 | 10 업로드 캐릭터 이미지 자산 등록 | 자산 등록 payload | 03 캐릭터 자산 불러오기 | 카드뉴스 브리프 |
+
+`10 업로드 캐릭터 이미지 자산 등록` 노드 안에서는 `업로드 이미지 파일`에 PNG/JPEG/WebP를 직접 올립니다.
+ImageToBase64 컴포넌트를 별도로 사용하는 경우에는 그 `Base64 Output`을 `10`의 `Base64 Message/File 출력`에 연결해도 됩니다.
 
 `10 업로드 캐릭터 이미지 자산 등록`에서 입력할 값:
 
 | 입력 | 예시 |
 | --- | --- |
+| `업로드 이미지 파일` | PNG/JPEG/WebP 직접 업로드 |
+| `Base64 Message/File 출력` | ImageToBase64의 Base64 Output 연결 |
 | `asset_id` | `hayangi_ai_hello` |
 | `캐릭터 키` | `hayangi`, `hadaengi`, `duo` |
 | `표시 이름` | `하냥이 AI 인사 포즈` |
@@ -50,43 +52,54 @@ LLM에는 base64 원문이 아니라 `asset_id`, `pose`, `recommended_slide_role
 
 ## 2. 특정 페이지 이미지 대체 업로드
 
-디자인팀이 만든 완성 이미지를 특정 페이지에 그대로 넣고 싶으면 `11 페이지 이미지 대체 업로드` 노드를 사용합니다.
+디자인팀이 만든 완성 이미지를 특정 페이지의 내용 영역에 자연스럽게 붙여 넣고 싶으면 `11 페이지 이미지 대체 업로드` 노드를 사용합니다.
+기본 배치 방식은 `content_area`라서 기존 카드 템플릿의 topbar/action 영역은 유지하고, 중앙 내용 영역에 이미지가 들어갑니다.
+카드 전체를 이미지로 완전히 대체해야 하는 경우에만 `이미지 배치 방식`을 `full_card`로 바꿉니다.
 
 권장 연결:
 
 | 순서 | From | Output | To | Input |
 | --- | --- | --- | --- | --- |
 | 1 | 00 카드뉴스 요청 입력 | 카드뉴스 요청 | 11 페이지 이미지 대체 업로드 | 카드뉴스 요청 payload |
-| 2 | Langflow File/Upload | File 또는 Data 출력 | 11 페이지 이미지 대체 업로드 | 업로드 이미지/File 출력 |
-| 3 | 11 페이지 이미지 대체 업로드 | 이미지 대체 payload | 01 카드뉴스 브리프 프롬프트 변수 준비 | 카드뉴스 요청 |
-| 4 | 11 페이지 이미지 대체 업로드 | 이미지 대체 payload | 02 카드뉴스 브리프 정리 | 카드뉴스 요청 |
+| 2 | 11 페이지 이미지 대체 업로드 | 이미지 대체 payload | 01 카드뉴스 브리프 프롬프트 변수 준비 | 카드뉴스 요청 |
+| 3 | 11 페이지 이미지 대체 업로드 | 이미지 대체 payload | 02 카드뉴스 브리프 정리 | 카드뉴스 요청 |
+
+`11 페이지 이미지 대체 업로드` 노드 안에서는 `업로드 이미지 파일`에 완성 이미지를 직접 올립니다.
+ImageToBase64 컴포넌트를 별도로 사용하는 경우에는 그 `Base64 Output`을 `11`의 `Base64 Message/File 출력`에 연결해도 됩니다.
 
 `11 페이지 이미지 대체 업로드`에서 입력할 값:
 
 | 입력 | 예시 |
 | --- | --- |
+| `업로드 이미지 파일` | PNG/JPEG/WebP 직접 업로드 |
+| `Base64 Message/File 출력` | ImageToBase64의 Base64 Output 연결 |
 | `대체할 페이지 번호` | `3` |
 | `대체 텍스트` | `AI 활용 우수 사례 소개 이미지` |
 | `이미지 맞춤` | `contain`, `cover`, `fill` |
+| `이미지 배치 방식` | `content_area`, `full_card` |
 | `배경색` | `#FFFDF7` |
 
-이렇게 등록된 페이지는 최종 plan에서 `role=image`가 됩니다.
-해당 slide의 `headline`, `body`, `bullets`, `buttons`, `character`는 비워지고, 업로드 이미지만 카드 영역에 맞춰 표시됩니다.
+이렇게 등록된 페이지는 기본적으로 최종 plan에서 기존 템플릿 역할을 유지하고, 업로드 이미지가 `content_area` 안에 표시됩니다.
+`이미지 배치 방식`을 `full_card`로 지정한 경우에만 최종 plan에서 `role=image`가 되고, 업로드 이미지만 카드 전체에 맞춰 표시됩니다.
 
 ## 3. 업로드 입력 형태
 
-두 업로드 노드는 Langflow 버전별 File 출력 차이를 흡수하기 위해 아래 형태를 모두 시도합니다.
+두 업로드 노드는 `FileInput` 직접 업로드를 우선 사용합니다.
+또한 Langflow 버전별 File/Message 출력 차이를 흡수하기 위해 아래 형태도 모두 시도합니다.
 
+- FileInput이 반환한 file-like object의 `.read()`
 - `Data.data.path`
 - `Data.data.file_path`
 - `Data.data.filepath`
 - `Data.data.data_uri`
 - `Data.data.base64`
 - `Data.data.content`
+- Message.text에 담긴 순수 base64
 - 순수 `data:image/png;base64,...` 문자열
+- 순수 base64 문자열
 - 서버 파일 경로 문자열
 
-운영에서는 사용자가 임의 경로를 직접 넣는 방식보다 Langflow File/Upload 컴포넌트를 통해 서버에 업로드된 파일 출력을 연결하는 방식을 권장합니다.
+운영에서는 사용자가 임의 경로를 직접 넣는 방식보다 각 업로드 노드의 `업로드 이미지 파일` FileInput을 사용하는 방식을 권장합니다.
 
 ## 4. 용량과 보안 기준
 

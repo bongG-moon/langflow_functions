@@ -18,6 +18,8 @@ STANDARD_MIDDLE_ROLES = ["why", "case", "tip", "security", "workflow", "checklis
 ALLOWED_ROLES = {"cover", "intro", "why", "case", "workflow", "tip", "checklist", "security", "caution", "quiz", "answer", "recap", "cta", "closing", "image"}
 ALLOWED_LAYOUTS = {"cover_character", "character_speech", "sticker_grid", "checklist_note", "notice_board", "quiz_card", "cta_character", "image_full", "image_contain", "image_cover"}
 ALLOWED_ANIMATIONS = {"none", "fade_up", "slide_in", "float_in", "pulse_soft", "stagger"}
+ALLOWED_CONTENT_BLOCK_TYPES = {"lead", "highlight", "mini_cards", "steps", "checklist", "quote", "metric", "tag_row"}
+ALLOWED_CONTENT_TONES = {"red", "orange", "soft", "blue", "green", "neutral"}
 ALLOWED_IMAGE_PREFIXES = ("data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,")
 PLACEHOLDER_MARKERS = ("PUT_BASE64", "PUT_APPROVED_BASE64", "...")
 DEFAULT_STYLE = {
@@ -92,6 +94,7 @@ def _fallback_plan(payload: dict[str, Any]) -> dict[str, Any]:
                 "headline": content["headline"],
                 "body": content["body"],
                 "bullets": content["bullets"],
+                "content_blocks": _fallback_content_blocks(role, content),
                 "animation": "fade_up" if index == 0 else ("stagger" if role in {"tip", "checklist"} else "slide_in"),
                 "buttons": [],
             }
@@ -203,6 +206,7 @@ def _normalize_plan(plan: dict[str, Any], payload: dict[str, Any]) -> tuple[dict
             "subtitle": _clean(plan.get("subtitle")) or _clean(brief.get("communication_goal")),
             "template_id": _template_id(request),
             "fixed_structure": True,
+            "template_contract": "비이미지 slide는 topbar, 우측 character_area, 하단 action_area가 고정된 SNS 가로 카드 템플릿에 렌더링되며 content_area 내부는 허용된 content_blocks로 디자인할 수 있습니다.",
             "aspect_ratio": _safe_token(request.get("aspect_ratio") or plan.get("aspect_ratio"), {"16:9", "1:1", "4:5", "9:16"}, "16:9"),
             "publication_info": publication_info,
             "style": style,
@@ -231,6 +235,25 @@ def _normalize_slide(
     slide_id = _clean(slide.get("slide_id")) or f"slide-{index + 1}"
     if image_override:
         normalized_override = _normalize_image_override(image_override)
+        if normalized_override.get("render_mode") != "full_card":
+            role = _safe_token(expected_role, ALLOWED_ROLES, "case")
+            layout = ROLE_LAYOUT.get(role, "sticker_grid")
+            return {
+                "slide_id": slide_id,
+                "role": role,
+                "template_role": role,
+                "layout": layout,
+                "headline": "",
+                "body": "",
+                "bullets": [],
+                "content_blocks": [],
+                "badge": _clean_text(slide.get("badge")) or "이미지 자료",
+                "character": {},
+                "animation": "fade_up",
+                "buttons": [button for button in _list(slide.get("buttons")) if isinstance(button, dict)][:3],
+                "click_target": _clean(slide.get("click_target")),
+                "image_override": normalized_override,
+            }
         return {
             "slide_id": slide_id,
             "role": "image",
@@ -239,6 +262,7 @@ def _normalize_slide(
             "headline": "",
             "body": "",
             "bullets": [],
+            "content_blocks": [],
             "badge": "",
             "character": {},
             "animation": "fade_up",
@@ -264,14 +288,23 @@ def _normalize_slide(
                 "placement": _first(_list(selected.get("placement_hints")), "bottom_right"),
                 "animation": _first(_list(selected.get("animation_hints")), "float_in"),
             }
+    headline = _clean_text(slide.get("headline") or slide.get("title")) or f"카드 {index + 1}"
+    body = _clean_text(slide.get("body") or slide.get("description"))
+    bullets = _text_items(slide.get("bullets") or slide.get("items"))[:5]
     return {
         "slide_id": slide_id,
         "role": role,
         "template_role": role,
         "layout": layout,
-        "headline": _clean_text(slide.get("headline") or slide.get("title")) or f"카드 {index + 1}",
-        "body": _clean_text(slide.get("body") or slide.get("description")),
-        "bullets": _text_items(slide.get("bullets") or slide.get("items"))[:5],
+        "headline": headline,
+        "body": body,
+        "bullets": bullets,
+        "content_blocks": _normalize_content_blocks(
+            slide.get("content_blocks") or slide.get("content_design") or slide.get("blocks"),
+            role,
+            body,
+            bullets,
+        ),
         "badge": _clean_text(slide.get("badge")),
         "character": character,
         "animation": animation,
@@ -318,6 +351,97 @@ def _select_asset_for_slide(slide: dict[str, Any], asset_context: dict[str, Any]
     return deepcopy(scored[0][2]) if scored else {}
 
 
+def _normalize_content_blocks(value: Any, role: str, body: str, bullets: list[str]) -> list[dict[str, Any]]:
+    raw_blocks = value if isinstance(value, list) else []
+    result: list[dict[str, Any]] = []
+    for block in raw_blocks:
+        if not isinstance(block, dict):
+            continue
+        block_type = _safe_token(block.get("type") or block.get("block_type"), ALLOWED_CONTENT_BLOCK_TYPES, "")
+        tone = _safe_token(block.get("tone"), ALLOWED_CONTENT_TONES, _tone_for_role(role))
+        title = _clean_text(block.get("title") or block.get("label"))
+        text = _clean_text(block.get("text") or block.get("body") or block.get("description"))
+        items = _normalize_block_items(block.get("items"))
+        if block_type == "lead" and text:
+            result.append({"type": "lead", "text": text, "tone": tone})
+        elif block_type == "highlight" and (title or text):
+            result.append({"type": "highlight", "title": title, "text": text, "tone": tone})
+        elif block_type == "mini_cards" and items:
+            result.append({"type": "mini_cards", "items": items[:3], "tone": tone})
+        elif block_type == "steps" and items:
+            result.append({"type": "steps", "items": items[:4], "tone": tone})
+        elif block_type == "checklist" and items:
+            result.append({"type": "checklist", "items": [item["text"] for item in items if item.get("text")][:5], "tone": tone})
+        elif block_type == "quote" and text:
+            source = _clean_text(block.get("source"))
+            result.append({"type": "quote", "text": text, "source": source, "tone": tone})
+        elif block_type == "metric":
+            value_text = _clean_text(block.get("value"))
+            label = _clean_text(block.get("label") or block.get("title"))
+            caption = _clean_text(block.get("caption") or block.get("text"))
+            if value_text or label:
+                result.append({"type": "metric", "value": value_text, "label": label, "caption": caption, "tone": tone})
+        elif block_type == "tag_row" and items:
+            result.append({"type": "tag_row", "items": [item["text"] for item in items if item.get("text")][:6], "tone": tone})
+    return result[:4] or _fallback_content_blocks(role, {"body": body, "bullets": bullets})
+
+
+def _normalize_block_items(value: Any) -> list[dict[str, str]]:
+    raw_items = value if isinstance(value, list) else ([value] if value not in (None, "") else [])
+    result: list[dict[str, str]] = []
+    for index, item in enumerate(raw_items, start=1):
+        if isinstance(item, dict):
+            title = _clean_text(item.get("title") or item.get("label") or item.get("name"))
+            text = _clean_text(item.get("text") or item.get("body") or item.get("description") or item.get("value"))
+        else:
+            title = ""
+            text = _clean_text(item)
+        if title or text:
+            result.append({"title": title, "text": text or title, "label": str(index)})
+    return result
+
+
+def _fallback_content_blocks(role: str, content: dict[str, Any]) -> list[dict[str, Any]]:
+    body = _clean_text(content.get("body"))
+    bullets = _text_items(content.get("bullets"))[:5]
+    tone = _tone_for_role(role)
+    blocks: list[dict[str, Any]] = []
+    if role in {"cover", "intro"}:
+        if body:
+            blocks.append({"type": "lead", "text": body, "tone": tone})
+        if bullets:
+            blocks.append({"type": "tag_row", "items": bullets[:4], "tone": tone})
+    elif role in {"tip", "checklist", "security", "caution"}:
+        if body:
+            blocks.append({"type": "highlight", "title": "핵심 포인트", "text": body, "tone": tone})
+        if bullets:
+            blocks.append({"type": "checklist", "items": bullets, "tone": tone})
+    elif role in {"workflow"} and bullets:
+        blocks.append({"type": "steps", "items": [{"title": item, "text": ""} for item in bullets[:4]], "tone": tone})
+    elif role in {"case", "why", "recap"} and bullets:
+        blocks.append({"type": "mini_cards", "items": [{"title": item, "text": ""} for item in bullets[:3]], "tone": tone})
+    elif role in {"cta", "closing"}:
+        if body:
+            blocks.append({"type": "highlight", "title": "다음 행동", "text": body, "tone": tone})
+        if bullets:
+            blocks.append({"type": "tag_row", "items": bullets[:4], "tone": tone})
+    if not blocks and body:
+        blocks.append({"type": "lead", "text": body, "tone": tone})
+    if not blocks and bullets:
+        blocks.append({"type": "tag_row", "items": bullets[:5], "tone": tone})
+    return blocks[:3]
+
+
+def _tone_for_role(role: str) -> str:
+    if role in {"security", "caution"}:
+        return "red"
+    if role in {"tip", "checklist", "workflow"}:
+        return "orange"
+    if role in {"case", "recap"}:
+        return "blue"
+    return "soft"
+
+
 def _image_override_maps(payload: dict[str, Any]) -> tuple[dict[int, dict[str, Any]], dict[str, dict[str, Any]]]:
     request = _dict(payload.get("card_news_request"))
     page_map: dict[int, dict[str, Any]] = {}
@@ -340,6 +464,7 @@ def _normalize_image_override(item: dict[str, Any]) -> dict[str, Any]:
         "data_uri": _clean(item.get("data_uri")),
         "alt": _clean(item.get("alt")) or "사용자가 지정한 카드뉴스 이미지",
         "fit": _safe_token(item.get("fit"), {"contain", "cover", "fill"}, "contain"),
+        "render_mode": _safe_token(item.get("render_mode"), {"content_area", "full_card"}, "content_area"),
         "background_color": _safe_color(item.get("background_color"), "#FFFDF7"),
         "source": _clean(item.get("source")) or "user_provided",
         "valid_data_uri": _valid_image_data_uri(_clean(item.get("data_uri"))),
@@ -360,28 +485,33 @@ def _attach_navigation_buttons(slides: list[dict[str, Any]], cta: dict[str, Any]
     result = []
     for index, slide in enumerate(slides):
         next_slide = deepcopy(slide)
-        is_image_override = bool(_dict(slide.get("image_override")))
+        is_full_card_image_override = _is_full_card_image_override(slide)
         buttons = []
-        if is_image_override:
+        if is_full_card_image_override:
             buttons = []
         elif index > 0:
             buttons.append({"label": "이전", "action_type": "anchor", "target": slide_ids[index - 1], "style": "secondary"})
-        if not is_image_override and index < len(slides) - 1:
+        if not is_full_card_image_override and index < len(slides) - 1:
             buttons.append({"label": "다음", "action_type": "anchor", "target": slide_ids[index + 1], "style": "primary"})
-        elif not is_image_override:
+        elif not is_full_card_image_override:
             label = _clean(cta.get("label")) or "처음으로"
             url = _clean(cta.get("url"))
             if url and _safe_url(url):
                 buttons.append({"label": label, "action_type": "external_link", "target": url, "style": "primary"})
             buttons.append({"label": "처음", "action_type": "anchor", "target": slide_ids[0], "style": "secondary"})
         custom_buttons = _normalize_buttons(_list(slide.get("buttons")), slide_ids)
-        next_slide["buttons"] = [] if is_image_override else (custom_buttons or buttons)
+        next_slide["buttons"] = [] if is_full_card_image_override else (custom_buttons or buttons)
         if index < len(slides) - 1:
             next_slide["click_target"] = slide_ids[index + 1]
         else:
             next_slide["click_target"] = ""
         result.append(next_slide)
     return result
+
+
+def _is_full_card_image_override(slide: dict[str, Any]) -> bool:
+    image_override = _dict(slide.get("image_override"))
+    return bool(image_override) and _safe_token(image_override.get("render_mode"), {"content_area", "full_card"}, "content_area") == "full_card"
 
 
 def _publication_info(request: dict[str, Any], brief: dict[str, Any], plan: dict[str, Any]) -> dict[str, str]:

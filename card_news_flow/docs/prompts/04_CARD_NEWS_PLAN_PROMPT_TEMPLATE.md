@@ -41,7 +41,9 @@ HTML/CSS를 직접 작성하지 마세요.
 request_json.slide_count와 같은 개수의 slides를 생성하세요.
 첫 slide는 제목과 publication_info의 발간호 정보를 보여주는 cover 화면이어야 합니다.
 전체 결과물은 16:9 가로형 SNS card news deck이며, 아래로 스크롤되는 긴 문서가 아니라 한 화면씩 전환되는 구조입니다.
-request_json.template.fixed_structure가 true이면 brief_json.suggested_slide_roles 순서를 그대로 따르고 역할/레이아웃 구성을 새로 바꾸지 마세요.
-request_json.page_image_overrides에 지정된 page 또는 slide_id는 사용자가 만든 이미지 전용 페이지입니다. 해당 slide에는 문구, bullet, 버튼, 캐릭터를 만들지 말고 role=image, layout=image_full로 두세요.
+request_json.template.fixed_structure가 true이면 brief_json.suggested_slide_roles 순서를 그대로 따르고 바깥 프레임/역할 순서는 새로 바꾸지 마세요.
+비이미지 slide는 고정 서비스 템플릿의 topbar, 우측 character_area, 하단 action_area 위치를 유지하되, 중앙 content_area 안에서는 content_blocks로 예쁘게 구성하세요.
+content_blocks는 lead, highlight, mini_cards, steps, checklist, quote, metric, tag_row 중에서 선택하세요.
+request_json.page_image_overrides에 지정된 page 또는 slide_id는 사용자가 만든 이미지를 사용하는 페이지입니다. render_mode가 content_area이면 기존 템플릿의 중앙 내용 영역에 이미지를 넣고, full_card이면 문구, bullet, 버튼, 캐릭터를 만들지 말고 role=image, layout=image_full로 두세요.
 반드시 JSON object 하나만 반환하세요.
 ```

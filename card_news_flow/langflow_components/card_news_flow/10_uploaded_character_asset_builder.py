@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from lfx.custom.custom_component.component import Component
-from lfx.io import DataInput, MessageTextInput, Output
+from lfx.io import DataInput, FileInput, MessageTextInput, Output
 from lfx.schema.data import Data
 
 
@@ -27,6 +27,7 @@ DEFAULT_MAX_IMAGE_BYTES = 2 * 1024 * 1024
 def build_uploaded_character_asset_payload(
     payload_value: Any = None,
     uploaded_image: Any = None,
+    image_file: Any = None,
     image_path: Any = "",
     direct_data_uri: Any = "",
     existing_manifest_json: Any = "",
@@ -47,7 +48,7 @@ def build_uploaded_character_asset_payload(
 
     payload = _payload(payload_value)
     max_bytes = _parse_size(max_image_bytes, DEFAULT_MAX_IMAGE_BYTES)
-    image, image_warnings = _extract_image(uploaded_image, image_path, direct_data_uri, max_bytes)
+    image, image_warnings = _extract_image(uploaded_image, image_file, image_path, direct_data_uri, max_bytes)
     warnings = list(image_warnings)
     errors: list[str] = []
     if not image:
@@ -97,9 +98,11 @@ def build_uploaded_character_asset_payload(
     return result
 
 
-def _extract_image(uploaded_image: Any, image_path: Any, direct_data_uri: Any, max_bytes: int) -> tuple[dict[str, Any], list[str]]:
+def _extract_image(uploaded_image: Any, image_file: Any, image_path: Any, direct_data_uri: Any, max_bytes: int) -> tuple[dict[str, Any], list[str]]:
     warnings: list[str] = []
-    candidates = [_clean(direct_data_uri), _clean(image_path)]
+    candidates = [_clean(direct_data_uri)]
+    candidates.extend(_candidate_values(image_file))
+    candidates.append(_clean(image_path))
     candidates.extend(_candidate_values(uploaded_image))
     for candidate in candidates:
         image, warning = _image_from_candidate(candidate, max_bytes)
@@ -115,7 +118,9 @@ def _candidate_values(value: Any) -> list[Any]:
         return []
     data = getattr(value, "data", None)
     if data is not None and data is not value:
-        return _candidate_values(data)
+        nested = _candidate_values(data)
+        if nested:
+            return nested
     if isinstance(value, list):
         result: list[Any] = []
         for item in value:
@@ -130,15 +135,20 @@ def _candidate_values(value: Any) -> list[Any]:
     for attr in ("path", "file_path", "filepath", "file", "files", "file_paths", "location", "content", "text", "value"):
         nested = getattr(value, attr, None)
         if nested is not None and nested is not value:
-            return _candidate_values(nested)
+            candidates = _candidate_values(nested)
+            if candidates:
+                return candidates
     return [value]
 
 
 def _image_from_candidate(candidate: Any, max_bytes: int) -> tuple[dict[str, Any], str]:
     if not candidate:
         return {}, ""
-    if isinstance(candidate, bytes):
-        return _image_from_bytes(candidate, "", max_bytes)
+    raw, filename, read_warning = _read_image_bytes(candidate)
+    if read_warning:
+        return {}, read_warning
+    if raw is not None:
+        return _image_from_bytes(raw, filename, max_bytes)
     text = _clean(candidate)
     if not text:
         return {}, ""
@@ -171,6 +181,31 @@ def _image_from_candidate(candidate: Any, max_bytes: int) -> tuple[dict[str, Any
     except Exception:
         return {}, ""
     return _image_from_bytes(raw, "", max_bytes)
+
+
+def _read_image_bytes(candidate: Any) -> tuple[bytes | None, str, str]:
+    if isinstance(candidate, bytes):
+        return candidate, "", ""
+    if isinstance(candidate, bytearray):
+        return bytes(candidate), "", ""
+    if isinstance(candidate, Path):
+        try:
+            return candidate.read_bytes(), candidate.name, ""
+        except Exception as exc:
+            return None, "", f"이미지 파일을 읽지 못했습니다: {exc}"
+    read = getattr(candidate, "read", None)
+    if callable(read):
+        try:
+            raw = read()
+        except Exception as exc:
+            return None, "", f"업로드 이미지 파일을 읽지 못했습니다: {exc}"
+        if isinstance(raw, str):
+            raw = raw.encode("utf-8")
+        if not isinstance(raw, (bytes, bytearray)):
+            return None, "", "업로드 이미지 파일이 bytes를 반환하지 않았습니다."
+        filename = _clean(getattr(candidate, "name", "")) or _clean(getattr(candidate, "filename", ""))
+        return bytes(raw), Path(filename).name if filename else "", ""
+    return None, "", ""
 
 
 def _image_from_bytes(raw: bytes, filename: str, max_bytes: int) -> tuple[dict[str, Any], str]:
@@ -350,8 +385,15 @@ class UploadedCharacterAssetBuilder(Component):
         ),
         DataInput(
             name="uploaded_image",
-            display_name="업로드 이미지/File 출력",
+            display_name="Base64 Message/File 출력",
             input_types=["Data", "Message", "File", "Text", "JSON", "StructuredContent", "Structured Content"],
+            required=False,
+        ),
+        FileInput(
+            name="image_file",
+            display_name="업로드 이미지 파일",
+            info="Read File을 거치지 말고 PNG/JPEG/WebP 파일을 여기 직접 업로드하세요.",
+            file_types=["png", "jpg", "jpeg", "webp"],
             required=False,
         ),
         MessageTextInput(name="image_path", display_name="서버 이미지 경로", value="", required=False, advanced=True),
@@ -376,6 +418,7 @@ class UploadedCharacterAssetBuilder(Component):
         result = build_uploaded_character_asset_payload(
             getattr(self, "payload", None),
             getattr(self, "uploaded_image", None),
+            getattr(self, "image_file", None),
             getattr(self, "image_path", ""),
             getattr(self, "direct_data_uri", ""),
             getattr(self, "existing_manifest_json", ""),
