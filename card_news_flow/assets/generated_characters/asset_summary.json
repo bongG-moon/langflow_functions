@@ -1,41 +1,294 @@
 {
   "manifest": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\generated_character_assets.local.json",
   "preview": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\preview_generated_character_assets.png",
+  "source_sheets": [
+    "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\source\\hayangi_semicon_pose_sheet_chromakey.png",
+    "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\source\\hadaengi_semicon_pose_sheet_chromakey.png",
+    "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\source\\duo_semicon_pose_sheet_chromakey.png"
+  ],
+  "transparent_source_sheets": [
+    "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\source\\hayangi_semicon_pose_sheet_transparent.png",
+    "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\source\\hadaengi_semicon_pose_sheet_transparent.png",
+    "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\source\\duo_semicon_pose_sheet_transparent.png"
+  ],
+  "new_asset_count": 30,
   "png_assets": [
     {
-      "asset_id": "hayangi_ai_hello",
-      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_ai_hello.png",
-      "width": 517,
-      "height": 475,
-      "bytes": 314230
+      "asset_id": "hayangi_semicon_hello",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_semicon_hello.png",
+      "width": 741,
+      "height": 904,
+      "bytes": 376031,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 404153
     },
     {
-      "asset_id": "hayangi_security_shield",
-      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_security_shield.png",
-      "width": 495,
-      "height": 465,
-      "bytes": 302844
+      "asset_id": "hayangi_semicon_chip_note",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_semicon_chip_note.png",
+      "width": 698,
+      "height": 904,
+      "bytes": 385486,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 379805
     },
     {
-      "asset_id": "hadaengi_ai_helper",
-      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_ai_helper.png",
-      "width": 523,
-      "height": 390,
-      "bytes": 305644
+      "asset_id": "hayangi_semicon_security_shield",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_semicon_security_shield.png",
+      "width": 772,
+      "height": 904,
+      "bytes": 411028,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 420651
     },
     {
-      "asset_id": "hadaengi_cta_point",
-      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_cta_point.png",
-      "width": 582,
-      "height": 385,
-      "bytes": 285084
+      "asset_id": "hayangi_semicon_prompt_magic",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_semicon_prompt_magic.png",
+      "width": 794,
+      "height": 904,
+      "bytes": 385562,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 402718
     },
     {
-      "asset_id": "duo_ai_team",
-      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\duo_ai_team.png",
-      "width": 727,
-      "height": 359,
-      "bytes": 407856
+      "asset_id": "hayangi_semicon_question",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_semicon_question.png",
+      "width": 774,
+      "height": 904,
+      "bytes": 386433,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 399586
+    },
+    {
+      "asset_id": "hayangi_semicon_checklist",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_semicon_checklist.png",
+      "width": 718,
+      "height": 904,
+      "bytes": 397027,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 406955
+    },
+    {
+      "asset_id": "hayangi_semicon_data_chart",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_semicon_data_chart.png",
+      "width": 766,
+      "height": 904,
+      "bytes": 344235,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 415361
+    },
+    {
+      "asset_id": "hayangi_semicon_privacy_stop",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_semicon_privacy_stop.png",
+      "width": 853,
+      "height": 904,
+      "bytes": 439573,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 465660
+    },
+    {
+      "asset_id": "hayangi_semicon_thumbs_up",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_semicon_thumbs_up.png",
+      "width": 769,
+      "height": 904,
+      "bytes": 372888,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 406774
+    },
+    {
+      "asset_id": "hayangi_semicon_calendar",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hayangi_semicon_calendar.png",
+      "width": 759,
+      "height": 904,
+      "bytes": 375263,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 418521
+    },
+    {
+      "asset_id": "hadaengi_semicon_hello",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_semicon_hello.png",
+      "width": 683,
+      "height": 904,
+      "bytes": 298003,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 373449
+    },
+    {
+      "asset_id": "hadaengi_semicon_laptop_helper",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_semicon_laptop_helper.png",
+      "width": 766,
+      "height": 904,
+      "bytes": 353805,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 414519
+    },
+    {
+      "asset_id": "hadaengi_semicon_data_scan",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_semicon_data_scan.png",
+      "width": 755,
+      "height": 904,
+      "bytes": 379001,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 417219
+    },
+    {
+      "asset_id": "hadaengi_semicon_workflow",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_semicon_workflow.png",
+      "width": 691,
+      "height": 904,
+      "bytes": 317679,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 396842
+    },
+    {
+      "asset_id": "hadaengi_semicon_idea",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_semicon_idea.png",
+      "width": 783,
+      "height": 904,
+      "bytes": 339406,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 390312
+    },
+    {
+      "asset_id": "hadaengi_semicon_toolbox",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_semicon_toolbox.png",
+      "width": 682,
+      "height": 904,
+      "bytes": 386209,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 385538
+    },
+    {
+      "asset_id": "hadaengi_semicon_robot_chat",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_semicon_robot_chat.png",
+      "width": 741,
+      "height": 904,
+      "bytes": 379007,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 413333
+    },
+    {
+      "asset_id": "hadaengi_semicon_chart_insight",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_semicon_chart_insight.png",
+      "width": 725,
+      "height": 904,
+      "bytes": 313562,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 402047
+    },
+    {
+      "asset_id": "hadaengi_semicon_search_lens",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_semicon_search_lens.png",
+      "width": 612,
+      "height": 889,
+      "bytes": 324611,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 350144
+    },
+    {
+      "asset_id": "hadaengi_semicon_cta_arrow",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\hadaengi_semicon_cta_arrow.png",
+      "width": 737,
+      "height": 891,
+      "bytes": 317653,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 390278
+    },
+    {
+      "asset_id": "duo_semicon_welcome",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\duo_semicon_welcome.png",
+      "width": 940,
+      "height": 715,
+      "bytes": 426064,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 448585
+    },
+    {
+      "asset_id": "duo_semicon_chip_highfive",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\duo_semicon_chip_highfive.png",
+      "width": 879,
+      "height": 710,
+      "bytes": 435094,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 417185
+    },
+    {
+      "asset_id": "duo_semicon_security_promise",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\duo_semicon_security_promise.png",
+      "width": 864,
+      "height": 737,
+      "bytes": 444794,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 424468
+    },
+    {
+      "asset_id": "duo_semicon_quiz_answer",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\duo_semicon_quiz_answer.png",
+      "width": 864,
+      "height": 725,
+      "bytes": 416532,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 426988
+    },
+    {
+      "asset_id": "duo_semicon_before_after",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\duo_semicon_before_after.png",
+      "width": 867,
+      "height": 820,
+      "bytes": 497970,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 509123
+    },
+    {
+      "asset_id": "duo_semicon_monthly_recap",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\duo_semicon_monthly_recap.png",
+      "width": 913,
+      "height": 734,
+      "bytes": 413103,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 449022
+    },
+    {
+      "asset_id": "duo_semicon_training_invite",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\duo_semicon_training_invite.png",
+      "width": 901,
+      "height": 727,
+      "bytes": 462219,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 428050
+    },
+    {
+      "asset_id": "duo_semicon_download_ready",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\duo_semicon_download_ready.png",
+      "width": 850,
+      "height": 727,
+      "bytes": 390190,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 415304
+    },
+    {
+      "asset_id": "duo_semicon_data_pipeline",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\duo_semicon_data_pipeline.png",
+      "width": 832,
+      "height": 693,
+      "bytes": 400644,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 374918
+    },
+    {
+      "asset_id": "duo_semicon_lab_briefing",
+      "path": "C:\\Users\\qkekt\\Desktop\\기능flow\\card_news_flow\\assets\\generated_characters\\png\\duo_semicon_lab_briefing.png",
+      "width": 943,
+      "height": 744,
+      "bytes": 532337,
+      "border_nontransparent_pixels": 0,
+      "visible_pixels": 470841
     }
-  ]
+  ],
+  "validation": {
+    "all_png_rgba": true,
+    "all_border_alpha_clear_12px": true,
+    "max_file_bytes": 532337,
+    "sticker_outline_applied": true,
+    "outline_style": "white sticker border with thin dark outer line"
+  }
 }
